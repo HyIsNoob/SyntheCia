@@ -109,6 +109,25 @@ describe('MidiParser & Chord Detection', () => {
     expect(parsed.sustainIntervals[0].end).toBeCloseTo(2, 1);
     expect(parsed.measures.length).toBeGreaterThan(0);
   });
+
+  it('supports multi-tempo MIDI headers when computing measure markers', () => {
+    const midi = new Midi();
+    midi.header.tempos = [
+      { ticks: 0, bpm: 120 },
+      { ticks: midi.header.ppq * 4, bpm: 60 }, // Bar 2 slows down to half tempo!
+    ];
+    midi.header.update();
+    const tr = midi.addTrack();
+    tr.addNote({ midi: 60, ticks: 0, durationTicks: midi.header.ppq * 2, velocity: 0.8 });
+    tr.addNote({ midi: 64, ticks: midi.header.ppq * 4, durationTicks: midi.header.ppq * 4, velocity: 0.8 });
+
+    const raw = midi.toArray();
+    const parsed = parseMidiBuffer(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), 'rubato.mid');
+    // Bar 1 (120 BPM, 4 beats) = 2.0s; Bar 2 (60 BPM, 4 beats) = 4.0s -> Bar 3 starts at ~6.0s!
+    expect(parsed.measures[0].time).toBeCloseTo(0, 2);
+    expect(parsed.measures[1].time).toBeCloseTo(2.0, 1);
+    expect(parsed.measures[2].time).toBeCloseTo(6.0, 1);
+  });
 });
 
 describe('DemoSongs & ColorUtils', () => {

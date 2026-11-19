@@ -138,18 +138,59 @@ export function buildMeasureMarkers(
   notes: MidiNoteEvent[],
   duration: number,
   bpm: number,
-  timeSignature: [number, number]
+  timeSignature: [number, number],
+  midiHeader?: Midi['header']
 ): MeasureMarker[] {
+  const markers: MeasureMarker[] = [];
+  let lastChord: string | null = null;
+
+  // Multi-Tempo Map precision: use tick-to-second conversion when a parsed MIDI header is present!
+  if (midiHeader && midiHeader.ppq > 0 && midiHeader.tempos.length > 0) {
+    const ppq = midiHeader.ppq;
+    const tsList =
+      midiHeader.timeSignatures.length > 0
+        ? [...midiHeader.timeSignatures].sort((a, b) => a.ticks - b.ticks)
+        : [{ ticks: 0, timeSignature: timeSignature as number[] }];
+
+    let tick = 0;
+    let measureNumber = 1;
+    let tsIdx = 0;
+    const maxSec = duration + 2;
+
+    while (measureNumber <= 4000) {
+      const start = midiHeader.ticksToSeconds(tick);
+      if (start > maxSec) break;
+
+      while (tsIdx + 1 < tsList.length && tsList[tsIdx + 1].ticks <= tick) {
+        tsIdx++;
+      }
+      const [num, den] = tsList[tsIdx].timeSignature;
+      const ticksPerBar = Math.max(
+        Math.round(ppq * 0.5),
+        Math.round(ppq * (num || 4) * (4 / (den || 4)))
+      );
+      const nextTick = tick + ticksPerBar;
+      const end = midiHeader.ticksToSeconds(nextTick);
+
+      const inBar = notes.filter((n) => n.start >= start - 0.04 && n.start < end - 0.04);
+      const detected = detectChordForNotes(inBar);
+      const chordLabel = detected && detected !== lastChord ? detected : null;
+      if (detected) lastChord = detected;
+
+      markers.push({ measureNumber, time: start, chordLabel });
+      tick = nextTick;
+      measureNumber++;
+    }
+    return markers;
+  }
+
+  // Fallback constant-tempo grid (used by procedural demo songs)
   const [beatsPerBar, beatUnit] = timeSignature;
   const safeBpm = Math.max(30, Math.min(300, bpm || 120));
   const measureDuration = (60 / safeBpm) * beatsPerBar * (4 / (beatUnit || 4));
-  const markers: MeasureMarker[] = [];
-
   if (measureDuration <= 0.1) return markers;
 
   const totalMeasures = Math.ceil((duration + 2) / measureDuration);
-  let lastChord: string | null = null;
-
   for (let m = 0; m <= totalMeasures; m++) {
     const start = m * measureDuration;
     const end = start + measureDuration;
@@ -286,7 +327,7 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName = 'Untitled.mi
   sustainIntervals.sort((a, b) => a.start - b.start);
 
   const duration = Math.max(maxEnd + 1.5, midi.duration || 0);
-  const measures = buildMeasureMarkers(rawNotes, duration, bpm, ts);
+  const measures = buildMeasureMarkers(rawNotes, duration, bpm, ts, midi.header);
 
   const cleanName =
     midi.name && midi.name.trim().length > 0

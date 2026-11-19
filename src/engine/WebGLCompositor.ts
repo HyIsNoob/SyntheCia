@@ -52,10 +52,12 @@ function sampleCurl(x: number, y: number, t: number): [number, number] {
 // ============================================================================
 const MAX_PARTICLES = 24000;
 const FLOATS_PER_PARTICLE = 10; // x, y, r, g, b, a, size, kind, vx, vy
-const PARTICLE_KIND_FLUID = 0; // Curl-noise thermal buoyancy silk ribbons
+const PARTICLE_KIND_FLUID = 0; // Curl-noise thermal buoyancy silk ribbons / flames
 const PARTICLE_KIND_SPARK = 1; // Velocity-stretched physics spark streaks with bounce
 const PARTICLE_KIND_STARDUST = 2; // 4-point optical diffraction star glints & bokeh
 const PARTICLE_KIND_RING = 3; // Expanding neon shockwave ring
+const PARTICLE_KIND_PETAL = 4; // Rotating notched Sakura cherry blossom petal
+const PARTICLE_KIND_CRYSTAL = 5; // Rotating 6-point Glacier Frost ice crystal
 
 interface FBO {
   fb: WebGLFramebuffer;
@@ -169,12 +171,34 @@ void main() {
     float star = (crossH + crossV) * 0.42;
     alpha = (bokeh * bokeh * 0.72 + star) * vColor.a;
     col = mix(col, vec3(1.0), clamp(star * 0.75, 0.0, 1.0));
-  } else {
+  } else if (vKind < 3.5) {
     // Crisp Expanding Neon Shockwave Ring
     float ring = exp(-pow((r - 0.8) * 12.0, 2.0));
     float inner = exp(-pow((r - 0.68) * 6.5, 2.0)) * 0.32;
     alpha = (ring + inner) * vColor.a;
     col = mix(col, vec3(1.0), ring * 0.48);
+  } else if (vKind < 4.5) {
+    // Sculpted Spinning Sakura Cherry Blossom Petal (oriented along vDir, flutter width via vSpeed!)
+    vec2 perp = vec2(-vDir.y, vDir.x);
+    float u = dot(p, vDir);
+    float v = dot(p, perp) / max(0.35, 0.55 + 0.45 * sin(vSpeed * 12.0));
+    // Elegant tapered petal silhouette with delicate top cleft notch
+    float body = (u * u * 1.15) + (v * v * 2.4);
+    float notch = smoothstep(0.18, 0.0, abs(v)) * smoothstep(0.35, 0.95, u) * 0.48;
+    float d = body + notch;
+    float edge = smoothstep(0.92, 0.45, d);
+    float sheen = exp(-((u - 0.15) * (u - 0.15) + v * v) * 4.5);
+    alpha = edge * vColor.a;
+    col = mix(col, vec3(1.0, 0.96, 0.98), sheen * 0.52);
+  } else {
+    // Rotating 6-Point Glacier Frost Ice Crystal / Snowflake
+    float ang = atan(p.y, p.x) + vSpeed * 3.0;
+    float hex = pow(abs(cos(ang * 3.0)), 6.0);
+    float arms = hex * smoothstep(1.0, 0.1, r);
+    float core = exp(-r2 * 10.0);
+    float sparkle = exp(-pow((r - 0.42) * 8.0, 2.0)) * (0.25 + 0.75 * hex);
+    alpha = clamp(core + arms * 0.78 + sparkle * 0.45, 0.0, 1.0) * vColor.a;
+    col = mix(col, vec3(0.95, 0.99, 1.0), clamp(core * 0.8 + arms * 0.35, 0.0, 1.0));
   }
 
   fragColor = vec4(col * alpha, alpha);
@@ -543,27 +567,63 @@ export class WebGLCompositor {
     const density = settings.particleDensity;
     const sizeScale = settings.particleSize;
     const speedScale = settings.particleSpeed;
+    const theme = settings.particleTheme ?? 'cosmic';
 
     for (let i = 0; i < triggers.length; i++) {
       const tr = triggers[i];
-      const r = tr.color.r / 255;
-      const g = tr.color.g / 255;
-      const b = tr.color.b / 255;
+      let r = tr.color.r / 255;
+      let g = tr.color.g / 255;
+      let b = tr.color.b / 255;
 
-      // A. Curl-Noise Thermal Buoyancy Silk Ribbons
+      // Theme-specific color harmonization
+      if (theme === 'fire') {
+        r = 1.0;
+        g = 0.72 + Math.random() * 0.25;
+        b = 0.22 + Math.random() * 0.18;
+      } else if (theme === 'sakura') {
+        r = 1.0;
+        g = 0.62 + Math.random() * 0.26;
+        b = 0.82 + Math.random() * 0.16;
+      } else if (theme === 'frost') {
+        r = 0.52 + Math.random() * 0.35;
+        g = 0.88 + Math.random() * 0.12;
+        b = 1.0;
+      }
+
+      // A. Fluid Silk / Volcanic Fire / Sakura Petals / Frost Mist
       if (settings.fluidSilkEnabled) {
         const count = tr.isAttack
-          ? Math.round((15 + tr.velocity * 22) * density)
-          : Math.max(1, Math.round((4 + tr.velocity * 6) * density * Math.min(2, dt * 60)));
+          ? Math.round((theme === 'sakura' ? 8 + tr.velocity * 10 : 15 + tr.velocity * 22) * density)
+          : Math.max(
+              1,
+              Math.round((theme === 'sakura' ? 2 + tr.velocity * 3 : 4 + tr.velocity * 6) * density * Math.min(2, dt * 60))
+            );
 
         for (let k = 0; k < count; k++) {
-          const jitterX = (Math.random() - 0.5) * 0.011;
+          const jitterX = (Math.random() - 0.5) * 0.013;
           const jitterY = Math.random() * 0.008;
-          const vx = (Math.random() - 0.5) * 0.055 * speedScale;
-          const vy = (0.1 + Math.random() * 0.17 + tr.velocity * 0.09) * speedScale;
-          const life = (1.35 + Math.random() * 1.95) / Math.max(0.5, speedScale * 0.85);
-          const sz = (3.0 + Math.random() * 5.8) * sizeScale;
-          const v = (Math.random() - 0.5) * 0.18;
+          const vx = (Math.random() - 0.5) * (theme === 'sakura' ? 0.12 : 0.055) * speedScale;
+          const vy =
+            (theme === 'fire'
+              ? 0.15 + Math.random() * 0.22
+              : theme === 'sakura'
+                ? 0.08 + Math.random() * 0.14
+                : 0.1 + Math.random() * 0.17 + tr.velocity * 0.09) * speedScale;
+          const life = (1.35 + Math.random() * 2.1) / Math.max(0.5, speedScale * 0.85);
+          const sz =
+            (theme === 'sakura'
+              ? 6.5 + Math.random() * 7.5
+              : theme === 'frost'
+                ? 4.2 + Math.random() * 6.5
+                : 3.0 + Math.random() * 5.8) * sizeScale;
+          const v = (Math.random() - 0.5) * 0.16;
+          const kind =
+            theme === 'sakura'
+              ? PARTICLE_KIND_PETAL
+              : theme === 'frost' && k % 3 === 0
+                ? PARTICLE_KIND_CRYSTAL
+                : PARTICLE_KIND_FLUID;
+
           this.emitParticle(
             tr.xNorm + jitterX,
             hitYNorm + jitterY,
@@ -571,10 +631,10 @@ export class WebGLCompositor {
             vy,
             Math.min(1, Math.max(0, r + v)),
             Math.min(1, Math.max(0, g + v * 0.6)),
-            Math.min(1, Math.max(0, b - v * 0.45)),
+            Math.min(1, Math.max(0, b - v * 0.4)),
             life,
             sz,
-            PARTICLE_KIND_FLUID
+            kind
           );
         }
       }
@@ -655,26 +715,65 @@ export class WebGLCompositor {
     this.dustTimer -= toSpawn;
 
     for (let i = 0; i < Math.min(toSpawn, 8); i++) {
-      const x = Math.random();
-      const y = hitYNorm + Math.random() * (1 - hitYNorm);
-      const vx = (Math.random() - 0.5) * 0.015;
-      const vy = (0.016 + Math.random() * 0.032) * settings.particleSpeed;
-      const tint = Math.random();
-      const r = tint < 0.33 ? 0.55 : tint < 0.66 ? 0.92 : 0.98;
-      const g = tint < 0.33 ? 0.85 : tint < 0.66 ? 0.68 : 0.84;
-      const b = tint < 0.33 ? 1.0 : tint < 0.66 ? 1.0 : 0.58;
-      this.emitParticle(
-        x,
-        y,
-        vx,
-        vy,
-        r,
-        g,
-        b,
-        2.6 + Math.random() * 2.4,
-        (2.4 + Math.random() * 4.2) * settings.particleSize,
-        PARTICLE_KIND_STARDUST
-      );
+      const theme = settings.particleTheme ?? 'cosmic';
+      if (theme === 'sakura') {
+        // Ambient cherry blossom petals drifting gracefully from the top sky!
+        const x = Math.random();
+        const y = 0.85 + Math.random() * 0.2;
+        const vx = (0.025 + Math.random() * 0.045) * settings.particleSpeed;
+        const vy = -(0.045 + Math.random() * 0.065) * settings.particleSpeed;
+        this.emitParticle(
+          x,
+          y,
+          vx,
+          vy,
+          1.0,
+          0.66 + Math.random() * 0.24,
+          0.84 + Math.random() * 0.15,
+          4.2 + Math.random() * 3.0,
+          (7.0 + Math.random() * 7.5) * settings.particleSize,
+          PARTICLE_KIND_PETAL
+        );
+      } else if (theme === 'frost') {
+        // Gently falling 6-point winter frost crystals
+        const x = Math.random();
+        const y = 0.85 + Math.random() * 0.2;
+        const vx = (Math.random() - 0.5) * 0.02;
+        const vy = -(0.03 + Math.random() * 0.05) * settings.particleSpeed;
+        this.emitParticle(
+          x,
+          y,
+          vx,
+          vy,
+          0.68 + Math.random() * 0.28,
+          0.92 + Math.random() * 0.08,
+          1.0,
+          4.5 + Math.random() * 3.0,
+          (5.5 + Math.random() * 6.5) * settings.particleSize,
+          PARTICLE_KIND_CRYSTAL
+        );
+      } else {
+        const x = Math.random();
+        const y = hitYNorm + Math.random() * (1 - hitYNorm);
+        const vx = (Math.random() - 0.5) * 0.015;
+        const vy = (0.016 + Math.random() * 0.032) * settings.particleSpeed;
+        const tint = Math.random();
+        const r = theme === 'fire' ? 1.0 : tint < 0.33 ? 0.55 : tint < 0.66 ? 0.92 : 0.98;
+        const g = theme === 'fire' ? 0.45 + tint * 0.45 : tint < 0.33 ? 0.85 : tint < 0.66 ? 0.68 : 0.84;
+        const b = theme === 'fire' ? 0.12 : tint < 0.33 ? 1.0 : tint < 0.66 ? 1.0 : 0.58;
+        this.emitParticle(
+          x,
+          y,
+          vx,
+          vy,
+          r,
+          g,
+          b,
+          2.6 + Math.random() * 2.4,
+          (2.4 + Math.random() * 4.2) * settings.particleSize,
+          PARTICLE_KIND_STARDUST
+        );
+      }
     }
   }
 
@@ -732,6 +831,20 @@ export class WebGLCompositor {
           vx = vx * 0.78 + (Math.sin(this.pSeed[i] * 19.3 + bounces) * 0.06);
           bounces++;
         }
+      } else if (kind === PARTICLE_KIND_PETAL) {
+        // Dreamy fluttering Sakura breeze physics with gentle side sway & slow descent
+        const flutter = Math.sin(clockSec * 2.8 + this.pSeed[i]) * 0.08 * turb;
+        vx += (0.032 * speed + flutter - vx * 1.1) * dt;
+        vy += (-0.065 * speed - vy * 1.35) * dt;
+        x += vx * dt;
+        y += vy * dt;
+      } else if (kind === PARTICLE_KIND_CRYSTAL) {
+        // Crisp drifting Frost crystal swirl
+        const [cx, cy] = sampleCurl(x * aspect * 0.55, y * 0.85, clockSec * 0.45);
+        vx += (cx * 0.09 * turb - vx * 1.1) * dt;
+        vy += ((cy * 0.06 - 0.025 * speed) - vy * 0.9) * dt;
+        x += vx * dt;
+        y += vy * dt;
       } else if (kind === PARTICLE_KIND_STARDUST) {
         const sway = Math.sin(clockSec * 1.8 + this.pSeed[i]) * 0.015;
         x += (vx + sway) * dt;
@@ -759,12 +872,28 @@ export class WebGLCompositor {
       this.pBounces[writeIdx] = bounces;
 
       const t = life / maxLife;
+      let outR = this.pR[writeIdx];
+      let outG = this.pG[writeIdx];
+      let outB = this.pB[writeIdx];
+
+      // Blackbody volcanic fire cooling curve (white-hot -> molten gold -> fiery orange -> crimson ash!)
+      if (settings.particleTheme === 'fire' && (kind === PARTICLE_KIND_FLUID || kind === PARTICLE_KIND_SPARK)) {
+        outR = 1.0 - Math.max(0, t - 0.65) * 0.65;
+        outG = Math.max(0.06, Math.pow(1 - t, 1.55) * 0.95);
+        outB = Math.max(0.02, Math.pow(1 - t, 3.8) * 0.72);
+      }
+
       let alpha: number;
       if (kind === PARTICLE_KIND_FLUID) {
         alpha = Math.min(1, t * 7.5) * Math.pow(1 - t, 1.48) * 0.56;
       } else if (kind === PARTICLE_KIND_SPARK) {
         const twinkle = 0.76 + 0.24 * Math.sin(clockSec * 42 + this.pSeed[i]);
         alpha = Math.pow(1 - t, 1.15) * 0.98 * twinkle;
+      } else if (kind === PARTICLE_KIND_PETAL) {
+        alpha = Math.min(1, t * 5.0) * Math.pow(1 - t, 1.15) * 0.78;
+      } else if (kind === PARTICLE_KIND_CRYSTAL) {
+        const glint = 0.68 + 0.32 * Math.sin(clockSec * 14 + this.pSeed[i]);
+        alpha = Math.min(1, t * 6.0) * Math.pow(1 - t, 1.2) * 0.85 * glint;
       } else if (kind === PARTICLE_KIND_STARDUST) {
         const sparkle = 0.65 + 0.35 * Math.sin(clockSec * 9.0 + this.pSeed[i]);
         alpha = Math.sin(t * Math.PI) * (0.36 + audioEnergy.overall * 0.4) * sparkle;
@@ -775,14 +904,21 @@ export class WebGLCompositor {
       const off = writeIdx * FLOATS_PER_PARTICLE;
       this.gpuBuffer[off] = x;
       this.gpuBuffer[off + 1] = y;
-      this.gpuBuffer[off + 2] = this.pR[writeIdx];
-      this.gpuBuffer[off + 3] = this.pG[writeIdx];
-      this.gpuBuffer[off + 4] = this.pB[writeIdx];
+      this.gpuBuffer[off + 2] = outR;
+      this.gpuBuffer[off + 3] = outG;
+      this.gpuBuffer[off + 4] = outB;
       this.gpuBuffer[off + 5] = alpha;
       this.gpuBuffer[off + 6] = kind === PARTICLE_KIND_FLUID ? sz * (0.68 + (1 - t) * 0.72) : sz;
       this.gpuBuffer[off + 7] = kind;
-      this.gpuBuffer[off + 8] = vx;
-      this.gpuBuffer[off + 9] = vy;
+      // For petals/crystals encode smooth spin vector so shader tumbles each petal individually!
+      if (kind === PARTICLE_KIND_PETAL || kind === PARTICLE_KIND_CRYSTAL) {
+        const spin = clockSec * (1.8 + (this.pSeed[i] % 1.8)) + this.pSeed[i];
+        this.gpuBuffer[off + 8] = Math.cos(spin) * 0.2;
+        this.gpuBuffer[off + 9] = Math.sin(spin) * 0.2;
+      } else {
+        this.gpuBuffer[off + 8] = vx;
+        this.gpuBuffer[off + 9] = vy;
+      }
 
       writeIdx++;
     }

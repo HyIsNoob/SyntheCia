@@ -31,9 +31,11 @@ import {
   type AudioMode,
   type BackgroundPreset,
   type ColorMode,
+  type CustomVideoMode,
   type HandStyle,
   type NoteStyle,
   type ParsedMidi,
+  type ParticleTheme,
   type PlayMode,
   type TrackOverride,
   type VisualizerSettings,
@@ -69,6 +71,8 @@ interface InspectorDrawerProps {
   onToggleUsbMidi: () => void;
   onUploadBackground: (file: File) => void;
   onClearBackground: () => void;
+  onUploadVideo: (file: File) => void;
+  onClearVideo: () => void;
   onUploadCustomAudio: (file: File) => void;
   onClearCustomAudio: () => void;
   onEnterCleanMode: () => void;
@@ -165,6 +169,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   onToggleUsbMidi,
   onUploadBackground,
   onClearBackground,
+  onUploadVideo,
+  onClearVideo,
   onUploadCustomAudio,
   onClearCustomAudio,
   onEnterCleanMode,
@@ -173,6 +179,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 }) => {
   const [tab, setTab] = useState<TabId>('presets');
   const bgInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const presetInputRef = useRef<HTMLInputElement | null>(null);
   const t = getTranslations(settings.language);
@@ -579,6 +586,21 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ sustainAuraEnabled: v })}
             />
             <ToggleRow
+              label={isEn ? 'Electric Chord Lightning Arcs' : 'Tia sét Neon nối phím hợp âm'}
+              hint={isEn ? 'Crackling bolts jump between struck chord keys' : 'Tia sét nhảy nối giữa các phím bấm cùng lúc'}
+              checked={settings.electricArcsEnabled}
+              onChange={(v) => onUpdateSettings({ electricArcsEnabled: v })}
+            />
+            <SliderRow
+              label={isEn ? 'Bass Camera Punch' : 'Độ nhún Camera theo lực Bass'}
+              valueText={`${Math.round(settings.cameraPunchIntensity * 100)}%`}
+              value={settings.cameraPunchIntensity}
+              min={0}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => onUpdateSettings({ cameraPunchIntensity: v })}
+            />
+            <ToggleRow
               label={isEn ? 'Plasma Strike Edge & Lens Flares' : 'Sóng Plasma & Anamorphic Flare'}
               checked={settings.plasmaEdgeWave}
               onChange={(v) => onUpdateSettings({ plasmaEdgeWave: v })}
@@ -619,8 +641,31 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             />
             {settings.particlesEnabled && (
               <div className="space-y-2.5 pl-1 border-l-2 border-violet-500/30">
+                <div className="grid grid-cols-4 gap-1">
+                  {(
+                    [
+                      { id: 'cosmic', label: 'Cosmic' },
+                      { id: 'fire', label: 'Fire' },
+                      { id: 'sakura', label: 'Sakura' },
+                      { id: 'frost', label: 'Frost' },
+                    ] as Array<{ id: ParticleTheme; label: string }>
+                  ).map((pt) => (
+                    <button
+                      key={pt.id}
+                      type="button"
+                      onClick={() => onUpdateSettings({ particleTheme: pt.id })}
+                      className={`py-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        settings.particleTheme === pt.id
+                          ? 'bg-violet-500/28 border-violet-400/55 text-white'
+                          : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {pt.label}
+                    </button>
+                  ))}
+                </div>
                 <ToggleRow
-                  label={isEn ? 'Curl-Noise Fluid Silk Plumes' : 'Lụa khói Curl-Noise'}
+                  label={isEn ? 'Curl-Noise Silk / Petals / Flames' : 'Lụa khói / Hoa đào / Lửa'}
                   checked={settings.fluidSilkEnabled}
                   onChange={(v) => onUpdateSettings({ fluidSilkEnabled: v })}
                 />
@@ -684,7 +729,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
         {/* 4. STAGE TAB (Custom Backdrop + Clean Video Mode & 60fps Capture) */}
         {tab === 'stage' && (
           <div className="space-y-3.5">
-            <SectionTitle>{isEn ? 'Custom Backdrop (GPU-Cached Blur)' : 'Ảnh nền Custom (Có Cache Blur)'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Custom Image or Video / Real Hands' : 'Ảnh nền hoặc Video / Ghép Tay Thật'}</SectionTitle>
             <input
               ref={bgInputRef}
               type="file"
@@ -698,40 +743,151 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 }
               }}
             />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*,.mp4,.webm,.mov"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onUploadVideo(file);
+                  e.target.value = '';
+                }
+              }}
+            />
 
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => bgInputRef.current?.click()}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-violet-600/85 hover:bg-violet-500 text-white text-xs font-semibold transition cursor-pointer shadow-md"
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-violet-600/85 hover:bg-violet-500 text-white text-[11px] font-semibold transition cursor-pointer shadow-md"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Upload Custom Image' : 'Chọn ảnh nền từ máy'}</span>
+                <span>{isEn ? 'Upload Image' : 'Chọn Ảnh nền'}</span>
               </button>
-              {settings.customBgUrl && (
-                <button
-                  type="button"
-                  onClick={onClearBackground}
-                  className="p-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/30 text-rose-300 cursor-pointer"
-                  title="Remove"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => videoInputRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-fuchsia-600/85 hover:bg-fuchsia-500 text-white text-[11px] font-semibold transition cursor-pointer shadow-md"
+              >
+                <Video className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Upload Video' : 'Chọn Video'}</span>
+              </button>
             </div>
 
             {settings.customBgUrl && (
-              <div className="relative h-20 rounded-xl overflow-hidden border border-white/15">
+              <div className="relative h-16 rounded-xl overflow-hidden border border-white/15 flex items-end">
                 <img
                   src={settings.customBgUrl}
                   alt="Custom background preview"
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-2">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent flex items-end justify-between p-2">
                   <span className="text-[10px] font-medium text-white">
-                    {isEn ? 'Custom backdrop active' : 'Ảnh nền custom đang bật'}
+                    {isEn ? 'Custom image active' : 'Ảnh nền custom đang bật'}
                   </span>
+                  <button
+                    type="button"
+                    onClick={onClearBackground}
+                    className="p-1 rounded-lg bg-rose-500/35 hover:bg-rose-500/55 text-rose-100 cursor-pointer"
+                    title="Remove image"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 </div>
+              </div>
+            )}
+
+            {settings.customVideoUrl && (
+              <div className="p-2.5 rounded-xl bg-fuchsia-950/35 border border-fuchsia-400/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-fuchsia-200">
+                    {isEn ? 'Custom Video Layer' : 'Lớp Video Custom'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onClearVideo}
+                    className="text-[10px] px-2 py-0.5 rounded bg-rose-500/25 hover:bg-rose-500/40 text-rose-200 cursor-pointer"
+                  >
+                    {isEn ? 'Remove' : 'Xóa'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      { id: 'backdrop', label: isEn ? 'Backdrop Loop' : 'Video Nền động' },
+                      { id: 'overhead-hands', label: isEn ? 'Overhead Hands' : 'Ghép Tay Thật' },
+                    ] as Array<{ id: CustomVideoMode; label: string }>
+                  ).map((vm) => (
+                    <button
+                      key={vm.id}
+                      type="button"
+                      onClick={() => onUpdateSettings({ customVideoMode: vm.id })}
+                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                        settings.customVideoMode === vm.id
+                          ? 'bg-fuchsia-500/30 border-fuchsia-400/60 text-white'
+                          : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {vm.label}
+                    </button>
+                  ))}
+                </div>
+                {settings.customVideoMode === 'overhead-hands' && (
+                  <div className="space-y-2 pt-0.5">
+                    <SliderRow
+                      label={isEn ? 'Video Sync Offset' : 'Căn độ trễ Video'}
+                      valueText={`${settings.customVideoOffsetMs >= 0 ? '+' : ''}${settings.customVideoOffsetMs} ms`}
+                      value={settings.customVideoOffsetMs}
+                      min={-3000}
+                      max={3000}
+                      step={20}
+                      onChange={(v) => onUpdateSettings({ customVideoOffsetMs: v })}
+                    />
+                    <SliderRow
+                      label={isEn ? 'Vertical Align (Y)' : 'Vị trí Dọc (Y)'}
+                      valueText={`${Math.round(settings.customVideoY * 100)}%`}
+                      value={settings.customVideoY}
+                      min={-0.4}
+                      max={0.4}
+                      step={0.01}
+                      onChange={(v) => onUpdateSettings({ customVideoY: v })}
+                    />
+                    <SliderRow
+                      label={isEn ? 'Zoom Scale' : 'Phóng to / Thu nhỏ'}
+                      valueText={`${Math.round(settings.customVideoScale * 100)}%`}
+                      value={settings.customVideoScale}
+                      min={0.6}
+                      max={2.0}
+                      step={0.02}
+                      onChange={(v) => onUpdateSettings({ customVideoScale: v })}
+                    />
+                    <SliderRow
+                      label={isEn ? 'Top Blend Feather' : 'Độ mờ mép chuyển cảnh'}
+                      valueText={`${Math.round(settings.customVideoFeather * 100)}%`}
+                      value={settings.customVideoFeather}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      onChange={(v) => onUpdateSettings({ customVideoFeather: v })}
+                    />
+                    <SliderRow
+                      label={isEn ? 'Video Opacity' : 'Độ rõ Video tay'}
+                      valueText={`${Math.round(settings.customVideoOpacity * 100)}%`}
+                      value={settings.customVideoOpacity}
+                      min={0.1}
+                      max={1}
+                      step={0.04}
+                      onChange={(v) => onUpdateSettings({ customVideoOpacity: v })}
+                    />
+                    <ToggleRow
+                      label={isEn ? 'Hide Synthetic Piano Keys' : 'Ẩn phím đàn ảo (hiện phím thật)'}
+                      checked={settings.hideSyntheticKeyboard}
+                      onChange={(v) => onUpdateSettings({ hideSyntheticKeyboard: v })}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -813,6 +969,67 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               step={0.05}
               onChange={(v) => onUpdateSettings({ bgAudioPulse: v })}
             />
+
+            <SectionTitle>{isEn ? 'Title Intro Card & Watermark' : 'Tiêu đề Intro & Chữ ký Kênh'}</SectionTitle>
+            <ToggleRow
+              label={isEn ? 'Show Cinematic Intro Title' : 'Hiện thẻ tiêu đề bài hát (Intro)'}
+              hint={isEn ? 'Rendered directly into exported video' : 'Vẽ trực tiếp vào video khi quay'}
+              checked={settings.showIntroTitle}
+              onChange={(v) => onUpdateSettings({ showIntroTitle: v })}
+            />
+            {settings.showIntroTitle && (
+              <div className="space-y-2 pl-1 border-l-2 border-violet-400/35">
+                <input
+                  type="text"
+                  value={settings.introTitle}
+                  onChange={(e) => onUpdateSettings({ introTitle: e.target.value })}
+                  placeholder={midi?.name || (isEn ? 'Song Title (auto from MIDI)' : 'Tên bài hát (tự lấy từ MIDI)')}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/12 text-xs text-white placeholder:text-slate-500 outline-none focus:border-violet-400"
+                />
+                <input
+                  type="text"
+                  value={settings.introSubtitle}
+                  onChange={(e) => onUpdateSettings({ introSubtitle: e.target.value })}
+                  placeholder={isEn ? 'Composer / Artist subtitle' : 'Tác giả / Nghệ sĩ'}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/12 text-xs text-white placeholder:text-slate-500 outline-none focus:border-violet-400"
+                />
+                <SliderRow
+                  label={isEn ? 'Intro Display Duration' : 'Thời gian hiện Intro'}
+                  valueText={`${settings.introDurationSec.toFixed(1)}s`}
+                  value={settings.introDurationSec}
+                  min={2}
+                  max={12}
+                  step={0.5}
+                  onChange={(v) => onUpdateSettings({ introDurationSec: v })}
+                />
+                <ToggleRow
+                  label={isEn ? 'Keep Title Always Visible' : 'Luôn hiện tiêu đề suốt bài'}
+                  checked={settings.introAlwaysShow}
+                  onChange={(v) => onUpdateSettings({ introAlwaysShow: v })}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <input
+                type="text"
+                value={settings.watermarkText}
+                onChange={(e) => onUpdateSettings({ watermarkText: e.target.value })}
+                placeholder={isEn ? 'Channel Watermark (e.g. @YourChannel)' : 'Chữ ký kênh (vd: @TenKenhCuaBan)'}
+                className="w-full px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/12 text-xs text-white placeholder:text-slate-500 outline-none focus:border-violet-400"
+              />
+              {settings.watermarkText.trim().length > 0 && (
+                <SliderRow
+                  label={isEn ? 'Watermark Opacity' : 'Độ rõ chữ ký kênh'}
+                  valueText={`${Math.round(settings.watermarkOpacity * 100)}%`}
+                  value={settings.watermarkOpacity}
+                  min={0.1}
+                  max={1.0}
+                  step={0.05}
+                  onChange={(v) => onUpdateSettings({ watermarkOpacity: v })}
+                />
+              )}
+            </div>
 
             <SectionTitle>{isEn ? 'Clean Video Mode & 60fps Capture' : 'Quay Video Sạch 60fps'}</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">

@@ -94,6 +94,7 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const sceneRef = useRef<SceneRenderer | null>(null);
   const compositorRef = useRef<WebGLCompositor | null>(null);
@@ -173,6 +174,7 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
+    const vid = videoRef.current;
     if (isPlaying) {
       audioEngine.ensureInitialized();
       audioEngine.startCustomAudio(
@@ -180,8 +182,17 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         settingsRef.current.customAudioOffsetMs,
         speedRef.current
       );
+      if (vid && settingsRef.current.customVideoUrl && settingsRef.current.customVideoMode === 'overhead-hands') {
+        const target = Math.max(0, playTimeRef.current + settingsRef.current.customVideoOffsetMs / 1000);
+        if (Number.isFinite(vid.duration) && target < vid.duration) vid.currentTime = target;
+        vid.playbackRate = speedRef.current;
+        void vid.play().catch(() => {});
+      }
     } else {
       audioEngine.stopAllNotes();
+      if (vid && settingsRef.current.customVideoMode === 'overhead-hands') {
+        vid.pause();
+      }
     }
   }, [isPlaying, audioEngine]);
 
@@ -210,6 +221,36 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     sceneRef.current?.setCustomBackground(
       settings.backgroundPreset === 'custom' ? settings.customBgUrl : null
     );
+    // Sync custom video element (looping backdrop vs MIDI-synced overhead real-hands)
+    const vid = videoRef.current;
+    if (vid) {
+      if (!settings.customVideoUrl) {
+        vid.pause();
+        if (vid.src) {
+          vid.removeAttribute('src');
+          vid.load();
+        }
+      } else {
+        if (vid.dataset.url !== settings.customVideoUrl) {
+          vid.dataset.url = settings.customVideoUrl;
+          vid.src = settings.customVideoUrl;
+          vid.load();
+        }
+        vid.loop = settings.customVideoMode === 'backdrop';
+        vid.playbackRate = speedRef.current;
+        if (settings.customVideoMode === 'backdrop') {
+          void vid.play().catch(() => {});
+        } else if (isPlayingRef.current) {
+          const target = Math.max(0, playTimeRef.current + settings.customVideoOffsetMs / 1000);
+          if (Number.isFinite(vid.duration) && target < vid.duration) {
+            vid.currentTime = target;
+          }
+          void vid.play().catch(() => {});
+        } else {
+          vid.pause();
+        }
+      }
+    }
     // Re-sync SSAA buffer resolution immediately when user switches Render Quality
     const container = containerRef.current;
     if (container && sceneRef.current && compositorRef.current) {
@@ -487,6 +528,22 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
       const sustainDown =
         liveSustainRef.current || (curMidi !== null && isSustainDownAt(curMidi, playTimeRef.current));
 
+      // Sync overhead real-hands video gently if drifted > 140ms
+      const vid = videoRef.current;
+      if (
+        vid &&
+        curSettings.customVideoUrl &&
+        curSettings.customVideoMode === 'overhead-hands' &&
+        vid.readyState >= 2
+      ) {
+        const targetVidTime = Math.max(0, playTimeRef.current + curSettings.customVideoOffsetMs / 1000);
+        if (Number.isFinite(vid.duration) && targetVidTime < vid.duration) {
+          if (Math.abs(vid.currentTime - targetVidTime) > 0.14) {
+            vid.currentTime = targetVidTime;
+          }
+        }
+      }
+
       const frame = scene.render(
         curMidi,
         playTimeRef.current,
@@ -497,7 +554,8 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         manualNotesRef.current,
         spectrumBins,
         overrides,
-        sustainDown
+        sustainDown,
+        vid
       );
 
       const blendedEnergy = {
@@ -620,6 +678,13 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
             : ''
         }`}
       >
+        <video
+          ref={videoRef}
+          muted
+          playsInline
+          crossOrigin="anonymous"
+          className="hidden"
+        />
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}

@@ -14,16 +14,19 @@
 
 ## Highlights
 
-- **AAA 3-Octave Optical HDR Bloom**: Multi-pass Dual-Kawase bloom (`Tight Core` + `Mid Satin` + `Wide Halo`) with color-saturation preservation and unsharp detail clarity — intense neon glow without milky haze or washed-out keys.
-- **24,000+ GPU Physics Particles**:
-  - **Velocity-Stretched Comet Spark Streaks** with gravity, quadratic air drag, and elastic piano-edge bounce
-  - **Multi-Octave Curl-Noise Fluid Silk Plumes** with thermal buoyancy updraft
-  - **4-Point Optical Diffraction Star Glints** & **Velocity Shockwave Rings**
+- **AAA 3-Octave Optical HDR Bloom + 2x SSAA & FXAA**: Multi-pass Dual-Kawase bloom with 4-tap anti-flicker prefiltering, 2x supersampling, and FXAA edge smoothing — silky-smooth diagonal 3D neon lines with zero stair-stepping.
+- **24,000+ GPU Physics Particles & 4 Particle Themes**:
+  - **Cosmic**: Curl-noise fluid silk plumes, velocity-stretched bouncing comet sparks & 4-point optical star glints
+  - **Volcanic Fire**: Blackbody temperature-cooling embers & rising flames
+  - **Sakura Petals**: Spinning glowing cherry blossom petals drifting on a breeze
+  - **Glacier Frost**: Rotating 6-point ice crystal snowflakes
 - **Concert Stage Visuals**:
-  - **2D Classic** & **3D Perspective Highway** with automatic measure bars & real-time chord detection (`Cmaj7`, `F#`, `B7`…)
-  - **4 Note Styles**: *Hollow Neon Rainbow* (with crisp dark-outlined pitch labels), *Cut 3D Crystal Gem*, *3D Glass Bar*, and *Plasma Beam* — with clean vertical & horizontal separation gaps
-  - **Live Audio EQ Spectrum**, **Glossy Piano Keybed Mirror Reflection**, **Anamorphic Horizontal Strike Flares**, **Audio-Reactive Plasma Edge Wave**, and **Sustain Pedal (CC64) Resonance Aura**
-- **Custom Backdrops (GPU-Cached Blur)**: Drag & drop any image with cached offscreen Gaussian blur (`0–30px`), opacity, brightness, saturation, vignette, and bass-reactive breathing — plus 4 animated built-in backdrops.
+  - **2D Classic** & **3D Perspective Highway** with multi-tempo measure bars & real-time chord detection (`Cmaj7`, `F#`, `B7`…)
+  - **Electric Chord Lightning Arcs** crackling dynamically between simultaneously struck keys + **Bass Camera Punch**
+  - **Live Audio EQ Spectrum**, **Glossy Piano Keybed Mirror Reflection**, **Anamorphic Horizontal Strike Flares**, **Plasma Edge Wave**, and **Sustain Pedal (CC64) Resonance Aura**
+- **Custom Image & Video / Overhead Real-Hands Overlay (`.mp4 / .webm`)**:
+  - Use looping videos or cached-blur images as backdrops, **OR** overlay your own **overhead piano footage of real hands** with Y-alignment, Zoom, Top Feather Mask, MIDI sync offset (`±3000ms`), and optional synthetic keyboard hide — Rousseau / SeeMusic Pro style right in the browser!
+- **Cinematic Title Intro Card & Channel Watermark**: Baked directly into the WebGL2 canvas so OBS & exported 60fps videos come ready for YouTube/TikTok.
 - **3 Interactive Performance Modes**:
   - **Magic Keys ("Giả bấm")**: Load any MIDI song and tap **any** key on your keyboard — every tap performs the exact next MIDI chord with your own live rubato timing!
   - **QWERTY Live Piano**: Play 2+ octaves right on your computer keyboard (`Z–M` & `Q–P`, `[ / ]` octave shift, `Shift` sustain pedal).

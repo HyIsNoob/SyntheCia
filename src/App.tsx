@@ -36,8 +36,9 @@ function loadSavedSettings(): VisualizerSettings {
       ...parsed,
       // Blob object URLs don't survive page reloads
       customBgUrl: null,
+      customVideoUrl: null,
       backgroundPreset:
-        parsed.backgroundPreset === 'custom'
+        parsed.backgroundPreset === 'custom' || parsed.backgroundPreset === 'video'
           ? DEFAULT_SETTINGS.backgroundPreset
           : (parsed.backgroundPreset ?? DEFAULT_SETTINGS.backgroundPreset),
     };
@@ -103,10 +104,10 @@ export const App: React.FC = () => {
     toastTimerRef.current = window.setTimeout(() => setToastMsg(null), durationMs);
   }, []);
 
-  // Auto-save settings to localStorage (excluding transient customBgUrl blob)
+  // Auto-save settings to localStorage (excluding transient customBgUrl & customVideoUrl blobs)
   useEffect(() => {
     try {
-      const toSave = { ...settings, customBgUrl: null };
+      const toSave = { ...settings, customBgUrl: null, customVideoUrl: null };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     } catch {
       // ignore storage quota errors
@@ -191,6 +192,7 @@ export const App: React.FC = () => {
         ...prev,
         ...preset.patch,
         customBgUrl: prev.customBgUrl,
+        customVideoUrl: prev.customVideoUrl,
       }));
       setActivePresetId(presetId);
       showToast(`Preset: "${preset.name}"`);
@@ -364,6 +366,28 @@ export const App: React.FC = () => {
     setSettings((prev) => {
       if (prev.customBgUrl) URL.revokeObjectURL(prev.customBgUrl);
       return { ...prev, backgroundPreset: 'nebula', customBgUrl: null };
+    });
+  }, []);
+
+  const handleUploadVideo = useCallback(
+    (file: File) => {
+      const url = URL.createObjectURL(file);
+      setSettings((prev) => {
+        if (prev.customVideoUrl) URL.revokeObjectURL(prev.customVideoUrl);
+        return {
+          ...prev,
+          customVideoUrl: url,
+        };
+      });
+      showToast(`${settings.language === 'en' ? 'Loaded video' : 'Đã nạp video'}: ${file.name}`);
+    },
+    [settings.language, showToast]
+  );
+
+  const handleClearVideo = useCallback(() => {
+    setSettings((prev) => {
+      if (prev.customVideoUrl) URL.revokeObjectURL(prev.customVideoUrl);
+      return { ...prev, customVideoUrl: null, hideSyntheticKeyboard: false };
     });
   }, []);
 
@@ -666,6 +690,8 @@ export const App: React.FC = () => {
       void handleImportPresetJson(file);
     } else if (file.type.startsWith('image/')) {
       handleUploadBackground(file);
+    } else if (file.type.startsWith('video/') || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) {
+      handleUploadVideo(file);
     } else if (file.type.startsWith('audio/')) {
       void handleUploadCustomAudio(file);
     } else {
@@ -826,6 +852,8 @@ export const App: React.FC = () => {
             onToggleUsbMidi={() => void handleToggleUsbMidi()}
             onUploadBackground={handleUploadBackground}
             onClearBackground={handleClearBackground}
+            onUploadVideo={handleUploadVideo}
+            onClearVideo={handleClearVideo}
             onUploadCustomAudio={(f) => void handleUploadCustomAudio(f)}
             onClearCustomAudio={handleClearCustomAudio}
             onEnterCleanMode={() => {

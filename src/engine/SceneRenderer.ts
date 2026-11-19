@@ -57,6 +57,7 @@ export class SceneRenderer {
   private prevPressedSet = new Set<number>();
   private readonly hands = new VirtualHandsController();
   private sustainSmooth = 0;
+  private cameraPunch = 0;
 
   // Precomputed smoothed wave arrays for the plasma keyboard edge
   private readonly waveSamples = 180;
@@ -133,7 +134,8 @@ export class SceneRenderer {
     manualPressedNotes: ReadonlyMap<number, number>,
     spectrumBins?: Float32Array,
     trackOverrides?: Readonly<Record<number, TrackOverride>>,
-    sustainPedalDown = false
+    sustainPedalDown = false,
+    videoEl?: HTMLVideoElement | null
   ): SceneFrameResult {
     const ctx = this.ctx;
     const width = this.canvas.width;
@@ -180,6 +182,7 @@ export class SceneRenderer {
     }
 
     let activeEnergySum = 0;
+    let attackImpact = 0;
 
     // Update smooth key states & collect particle triggers
     for (let i = 0; i < TOTAL_KEYS; i++) {
@@ -193,6 +196,12 @@ export class SceneRenderer {
         ks.color = active.color;
         ks.intensity = Math.min(1, ks.intensity + dt * 28);
         activeEnergySum += active.velocity;
+
+        if (!wasPressed) {
+          // Bass/strong chord attacks fuel subtle cinematic camera punch
+          const bassBoost = ks.midi < 55 ? 1.55 : 0.7;
+          attackImpact += active.velocity * bassBoost;
+        }
 
         const keyLayout = getKeyLayoutByMidi(ks.midi);
         if (keyLayout) {
@@ -210,10 +219,17 @@ export class SceneRenderer {
       }
     }
 
+    // Smooth spring-decay camera bass punch
+    const punchTarget = Math.min(1, attackImpact * 0.28 + audioEnergy.bass * 0.45);
+    if (punchTarget > this.cameraPunch) {
+      this.cameraPunch += (punchTarget - this.cameraPunch) * Math.min(1, dt * 18);
+    } else {
+      this.cameraPunch *= Math.exp(-dt * 7.5);
+    }
+
     this.prevPressedSet = new Set(currentlyPressed.keys());
     const activeEnergy = Math.min(1, activeEnergySum / 4.2);
 
-    // Update optional finger energy guide kinematics
     if (settings.showHands) {
       this.hands.update(
         midi,
@@ -224,15 +240,29 @@ export class SceneRenderer {
       );
     }
 
-    // 2. Render Background (with cached offscreen blurred custom image!)
-    this.renderBackground(ctx, width, height, hitLineY, clockSec, settings, audioEnergy);
+    const hasVideoReady = Boolean(videoEl && videoEl.readyState >= 2 && settings.customVideoUrl);
+    const isOverheadHandsVideo = hasVideoReady && settings.customVideoMode === 'overhead-hands';
+
+    // 2. Render Background (Image / Looping Video / Animated Procedural)
+    this.renderBackground(ctx, width, height, hitLineY, clockSec, settings, audioEnergy, hasVideoReady && !isOverheadHandsVideo ? videoEl : null);
+
+    // Apply subtle Bass Camera Punch ONLY to the upper falling-note stage (keeps keyboard rock solid!)
+    const punchAmt = this.cameraPunch * settings.cameraPunchIntensity;
+    ctx.save();
+    if (punchAmt > 0.004) {
+      const zoom = 1 + punchAmt * 0.015;
+      const shiftY = -punchAmt * 2.5;
+      ctx.translate(width * 0.5, hitLineY * 0.5 + shiftY);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-width * 0.5, -hitLineY * 0.5);
+    }
 
     // 3. Render Octave Grid, Measure Lines & Chord Markers
     if (settings.showMeasureGrid || is3D) {
       this.renderHighwayGrid(ctx, midi, currentTime, width, hitLineY, settings);
     }
 
-    // 4. Render Live Audio EQ Spectrum behind strike line (Phase 2 AAA Concert FX)
+    // 4. Render Live Audio EQ Spectrum behind strike line
     if (settings.eqSpectrumEnabled && spectrumBins) {
       this.renderAudioSpectrum(ctx, width, hitLineY, spectrumBins, settings, audioEnergy);
     }
@@ -253,15 +283,32 @@ export class SceneRenderer {
     }
     ctx.restore();
 
-    // 7. Render Refined Plasma Energy Wave + Anamorphic Strike Flares along hitLineY
+    ctx.restore(); // end camera punch transform
+
+    // 7. Render Electric Chord Lightning Arcs jumping between simultaneously struck keys!
+    if (settings.electricArcsEnabled) {
+      this.renderElectricChordArcs(ctx, width, hitLineY, clockSec);
+    }
+
+    // 8. Render Refined Plasma Energy Wave + Anamorphic Strike Flares along hitLineY
     if (settings.plasmaEdgeWave && settings.plasmaEdgeIntensity > 0.01) {
       this.renderPlasmaEdge(ctx, width, hitLineY, clockSec, dt, settings, audioEnergy);
     }
 
-    // 8. Render Photorealistic 88-Key Piano Keyboard
-    this.renderPianoKeyboard(ctx, width, height, hitLineY, pianoHeight, settings);
+    // 9. Render Piano Keyboard &/OR Overhead Real-Hands Video Overlay (Rousseau / SeeMusic style!)
+    if (!isOverheadHandsVideo || !settings.hideSyntheticKeyboard) {
+      this.renderPianoKeyboard(ctx, width, height, hitLineY, pianoHeight, settings);
+    } else {
+      // Dark clean backdrop behind real overhead hands video
+      ctx.fillStyle = '#04050a';
+      ctx.fillRect(0, hitLineY, width, pianoHeight);
+    }
 
-    // 9. Render Piano Keybed Mirror Reflection & Sustain Pedal Resonance Aura
+    if (isOverheadHandsVideo && videoEl) {
+      this.renderOverheadHandsVideo(ctx, videoEl, width, height, hitLineY, pianoHeight, settings);
+    }
+
+    // 10. Render Piano Keybed Mirror Reflection & Sustain Pedal Resonance Aura
     if (settings.mirrorReflectionEnabled && settings.mirrorReflectionIntensity > 0.02) {
       this.renderKeybedMirrorReflection(ctx, width, hitLineY, pianoHeight, settings);
     }
@@ -269,7 +316,7 @@ export class SceneRenderer {
       this.renderSustainAura(ctx, width, height, hitLineY, pianoHeight, settings);
     }
 
-    // 10. Render Optional Sleek Finger Energy Guide (disabled by default)
+    // 11. Render Optional Sleek Finger Energy Guide
     if (settings.showHands) {
       const leftTheme = hexToRgb(settings.leftHandColor);
       const rightTheme = hexToRgb(settings.rightHandColor);
@@ -285,6 +332,9 @@ export class SceneRenderer {
       );
     }
 
+    // 12. Render Cinematic Title Intro Card & Channel Watermark directly onto Canvas (baked into video!)
+    this.renderTitleAndWatermark(ctx, midi, currentTime, width, hitLineY, settings);
+
     return { hitLineY, triggers, activeEnergy };
   }
 
@@ -295,7 +345,8 @@ export class SceneRenderer {
     hitLineY: number,
     clockSec: number,
     settings: VisualizerSettings,
-    audioEnergy: AudioEnergy
+    audioEnergy: AudioEnergy,
+    backdropVideo?: HTMLVideoElement | null
   ): void {
     ctx.fillStyle = '#030408';
     ctx.fillRect(0, 0, width, height);
@@ -303,7 +354,31 @@ export class SceneRenderer {
     const pulse = 1 + audioEnergy.bass * settings.bgAudioPulse * 0.22;
     const scalePulse = 1 + audioEnergy.bass * settings.bgAudioPulse * 0.035;
 
-    if (settings.backgroundPreset === 'custom' && this.customBgImage) {
+    if (backdropVideo && backdropVideo.videoWidth > 0 && backdropVideo.videoHeight > 0) {
+      const vidRatio = backdropVideo.videoWidth / backdropVideo.videoHeight;
+      const canvasRatio = width / Math.max(1, height);
+      let drawW = width;
+      let drawH = height;
+      if (vidRatio > canvasRatio) {
+        drawH = height * scalePulse;
+        drawW = drawH * vidRatio;
+      } else {
+        drawW = width * scalePulse;
+        drawH = drawW / vidRatio;
+      }
+      const blurPad = settings.bgBlur * 1.8;
+      drawW += blurPad * 2;
+      drawH += blurPad * 2;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, settings.bgOpacity));
+      const filters: string[] = [];
+      if (settings.bgBlur > 0.5) filters.push(`blur(${settings.bgBlur.toFixed(0)}px)`);
+      filters.push(`brightness(${settings.bgBrightness.toFixed(2)})`);
+      filters.push(`saturate(${settings.bgSaturation.toFixed(2)})`);
+      ctx.filter = filters.join(' ');
+      ctx.drawImage(backdropVideo, (width - drawW) * 0.5, (height - drawH) * 0.5, drawW, drawH);
+      ctx.restore();
+    } else if (settings.backgroundPreset === 'custom' && this.customBgImage) {
       const img = this.customBgImage;
       // Rebuild offscreen blurred background cache ONLY when image, size, or filter sliders change!
       const cacheKey = `${this.customBgUrl}|${width}x${height}|${settings.bgBlur.toFixed(1)}|${settings.bgBrightness.toFixed(2)}|${settings.bgSaturation.toFixed(2)}`;
@@ -1374,5 +1449,236 @@ export class SceneRenderer {
     ctx.fillRect(0, hitLineY, 2, pianoHeight);
     ctx.fillRect(width - 2, hitLineY, 2, pianoHeight);
     ctx.restore();
+  }
+
+  /**
+   * v3.0 SeeMusic Feature: Overhead Real-Hands Video Overlay aligned with the piano keybed,
+   * complete with Y-position, zoom scale, soft top feather blend, and colored key-light bounce!
+   */
+  private renderOverheadHandsVideo(
+    ctx: CanvasRenderingContext2D,
+    videoEl: HTMLVideoElement,
+    width: number,
+    height: number,
+    hitLineY: number,
+    pianoHeight: number,
+    settings: VisualizerSettings
+  ): void {
+    if (videoEl.videoWidth <= 0 || videoEl.videoHeight <= 0) return;
+
+    const vidRatio = videoEl.videoWidth / videoEl.videoHeight;
+    const drawW = width * settings.customVideoScale;
+    const drawH = drawW / vidRatio;
+    const dx = (width - drawW) * 0.5;
+    // Anchor around the piano keyboard area, adjustable via customVideoY (-0.4..0.4)
+    const dy = height - drawH + settings.customVideoY * height;
+
+    // Region to show overhead hands video (bottom keyboard + adjustable top feather above hitLineY)
+    const featherPx = Math.max(8, pianoHeight * 0.9 * settings.customVideoFeather);
+    const clipTop = Math.max(0, hitLineY - featherPx * 0.55);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, clipTop, width, height - clipTop);
+    ctx.clip();
+
+    ctx.globalAlpha = Math.max(0, Math.min(1, settings.customVideoOpacity));
+    ctx.filter = `brightness(${settings.bgBrightness.toFixed(2)}) saturate(${settings.bgSaturation.toFixed(2)})`;
+    ctx.drawImage(videoEl, dx, dy, drawW, drawH);
+    ctx.filter = 'none';
+
+    // Smooth dark gradient feather along top edge so real footage melts seamlessly into neon highway
+    if (featherPx > 10) {
+      const grad = ctx.createLinearGradient(0, clipTop, 0, clipTop + featherPx);
+      grad.addColorStop(0, 'rgba(3, 4, 8, 0.95)');
+      grad.addColorStop(0.55, 'rgba(3, 4, 8, 0.35)');
+      grad.addColorStop(1, 'rgba(3, 4, 8, 0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, clipTop, width, featherPx);
+    }
+
+    // Add luminous colored LED reflection onto the filmed hands/keys when keys are struck!
+    const layout = getPianoLayout();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < TOTAL_KEYS; i++) {
+      const ks = this.keyStates[i];
+      if (ks.intensity < 0.08) continue;
+      const k = layout[i];
+      const cx = k.normCenterX * width;
+      const rad = k.normWidth * width * 2.4;
+      const g = ctx.createRadialGradient(cx, hitLineY + pianoHeight * 0.25, 0, cx, hitLineY + pianoHeight * 0.28, rad);
+      g.addColorStop(0, rgbToCss(lightenRgb(ks.color, 0.35), 0.5 * ks.intensity));
+      g.addColorStop(1, rgbToCss(ks.color, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - rad, hitLineY, rad * 2, pianoHeight);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v3.0 AAA Concert FX: Electric Lightning Arcs jumping dynamically between struck chord keys!
+   */
+  private renderElectricChordArcs(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    clockSec: number
+  ): void {
+    const layout = getPianoLayout();
+    const pxScale = Math.max(1, width / 1360);
+    const active: Array<{ midi: number; x: number; intensity: number; color: RGB }> = [];
+
+    for (let i = 0; i < TOTAL_KEYS; i++) {
+      const ks = this.keyStates[i];
+      if (ks.intensity > 0.35) {
+        active.push({
+          midi: ks.midi,
+          x: layout[i].normCenterX * width,
+          intensity: ks.intensity,
+          color: ks.color,
+        });
+      }
+    }
+
+    if (active.length < 2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Connect adjacent simultaneously active keys within ~1.3 octaves (16 semitones)
+    const timeTick = Math.floor(clockSec * 28); // crisp 28Hz crackling lightning flicker
+    for (let i = 0; i < active.length - 1; i++) {
+      const a = active[i];
+      const b = active[i + 1];
+      const span = b.midi - a.midi;
+      if (span < 2 || span > 16) continue;
+
+      const dist = b.x - a.x;
+      const segs = Math.max(6, Math.min(16, Math.floor(dist / (18 * pxScale))));
+      const amp = Math.min(26 * pxScale, (8 + dist * 0.08) * Math.min(a.intensity, b.intensity));
+      const pts: Array<{ x: number; y: number }> = [];
+
+      for (let s = 0; s <= segs; s++) {
+        const t = s / segs;
+        const x = a.x + dist * t;
+        const arch = Math.sin(t * Math.PI);
+        const seed = Math.sin((timeTick * 17.3 + i * 31.7 + s * 13.1)) * 43758.5453;
+        const jitter = (seed - Math.floor(seed) - 0.5) * 2;
+        const y = hitLineY - arch * amp * (0.6 + Math.abs(jitter) * 0.7) - jitter * amp * 0.45 * arch;
+        pts.push({ x, y });
+      }
+
+      const boltGrad = ctx.createLinearGradient(a.x, hitLineY, b.x, hitLineY);
+      const alpha = Math.min(1, (a.intensity + b.intensity) * 0.5);
+      boltGrad.addColorStop(0, rgbToCss(a.color, 0.85 * alpha));
+      boltGrad.addColorStop(1, rgbToCss(b.color, 0.85 * alpha));
+
+      // Outer colored electric sheath
+      ctx.strokeStyle = boltGrad;
+      ctx.lineWidth = 3.2 * pxScale;
+      ctx.beginPath();
+      pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+
+      // Razor white-hot plasma bolt core
+      ctx.strokeStyle = `rgba(255, 255, 255, ${(0.92 * alpha).toFixed(3)})`;
+      ctx.lineWidth = 1.15 * pxScale;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v3.0 YouTube/TikTok Ready: Renders optional Cinematic Title Intro Card & Channel Watermark
+   * directly onto the canvas so they appear cleanly in Clean Video Mode & 60fps exports!
+   */
+  private renderTitleAndWatermark(
+    ctx: CanvasRenderingContext2D,
+    midi: ParsedMidi | null,
+    currentTime: number,
+    width: number,
+    hitLineY: number,
+    settings: VisualizerSettings
+  ): void {
+    const pxScale = Math.max(1, width / 1360);
+
+    // 1. Cinematic Intro Title Card
+    if (settings.showIntroTitle) {
+      const titleText = (settings.introTitle.trim() || midi?.name || 'SyntheCia Studio').trim();
+      const subtitleText = settings.introSubtitle.trim();
+
+      let alpha = 1;
+      let slideX = 0;
+      if (!settings.introAlwaysShow) {
+        const dur = Math.max(2, settings.introDurationSec);
+        if (currentTime > dur + 0.6) {
+          alpha = 0;
+        } else if (currentTime < 0.75) {
+          const tIn = Math.max(0, currentTime / 0.75);
+          const ease = 1 - Math.pow(1 - tIn, 3);
+          alpha = ease;
+          slideX = (1 - ease) * -28 * pxScale;
+        } else if (currentTime > dur - 1.1) {
+          const tOut = Math.max(0, Math.min(1, (dur - currentTime) / 1.1));
+          alpha = tOut * tOut;
+          slideX = (1 - tOut) * -14 * pxScale;
+        }
+      }
+
+      if (alpha > 0.01) {
+        const padX = 44 * pxScale + slideX;
+        const baseY = hitLineY - 96 * pxScale;
+        const leftCol = hexToRgb(settings.leftHandColor);
+        const rightCol = hexToRgb(settings.rightHandColor);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // Glowing vertical accent bar
+        const barGrad = ctx.createLinearGradient(padX, baseY - 36 * pxScale, padX, baseY + 26 * pxScale);
+        barGrad.addColorStop(0, rgbToCss(leftCol, 0.95));
+        barGrad.addColorStop(1, rgbToCss(rightCol, 0.95));
+        ctx.fillStyle = barGrad;
+        ctx.fillRect(padX, baseY - 34 * pxScale, 4 * pxScale, 58 * pxScale);
+
+        // Song Title
+        ctx.shadowColor = 'rgba(2, 4, 12, 0.9)';
+        ctx.shadowBlur = 14 * pxScale;
+        ctx.font = `700 ${Math.round(30 * pxScale)}px "Space Grotesk", "Inter", sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(titleText, padX + 18 * pxScale, baseY - 2 * pxScale);
+
+        // Artist / Subtitle
+        if (subtitleText.length > 0) {
+          ctx.font = `500 ${Math.round(14 * pxScale)}px "Inter", sans-serif`;
+          ctx.fillStyle = 'rgba(203, 213, 225, 0.86)';
+          ctx.fillText(subtitleText, padX + 18 * pxScale, baseY + 21 * pxScale);
+        }
+
+        ctx.restore();
+      }
+    }
+
+    // 2. Subtle Channel Watermark (bottom-right cleanly above keyboard)
+    const wm = settings.watermarkText.trim();
+    if (wm.length > 0 && settings.watermarkOpacity > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = settings.watermarkOpacity;
+      ctx.font = `600 ${Math.round(14 * pxScale)}px "Space Grotesk", "Inter", sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+      ctx.shadowBlur = 8 * pxScale;
+      ctx.fillStyle = 'rgba(241, 245, 249, 0.92)';
+      ctx.fillText(wm, width - 24 * pxScale, hitLineY - 18 * pxScale);
+      ctx.restore();
+    }
   }
 }
