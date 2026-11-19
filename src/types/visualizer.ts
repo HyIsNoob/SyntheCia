@@ -153,7 +153,7 @@ export interface VisualPreset {
 }
 
 export const DEFAULT_SETTINGS: VisualizerSettings = {
-  language: 'vi',
+  language: 'en',
   showPerfStats: false,
 
   viewMode: '3d',

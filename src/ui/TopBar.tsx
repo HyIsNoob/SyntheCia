@@ -5,10 +5,9 @@ import {
   Circle,
   EyeOff,
   FileMusic,
-  Globe,
   Keyboard,
   Layers,
-  SlidersHorizontal,
+  Settings,
   Sparkles,
   Square,
   Upload,
@@ -81,7 +80,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <header className="fixed top-3 left-3 right-3 z-30 flex items-center justify-between gap-2 pointer-events-none">
-      {/* Left: Brand + Upload MIDI + Song Picker */}
+      {/* Left: Brand + Open MIDI + Song Picker */}
       <div className="flex items-center gap-2 pointer-events-auto min-w-0">
         <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-950/72 backdrop-blur-xl border border-white/10 shadow-lg shrink-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 flex items-center justify-center shadow-[0_0_18px_rgba(139,92,246,0.55)]">
@@ -111,7 +110,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
         </div>
 
-        {/* Upload MIDI button */}
+        {/* Open MIDI button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -134,7 +133,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={() => setDemoMenuOpen((v) => !v)}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/72 hover:bg-slate-900/85 backdrop-blur-xl border border-white/10 text-xs text-slate-200 max-w-[170px] sm:max-w-[210px] transition cursor-pointer"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/72 hover:bg-slate-900/85 backdrop-blur-xl border border-white/10 text-xs text-slate-200 max-w-[175px] sm:max-w-[220px] transition cursor-pointer"
           >
             <FileMusic className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="truncate font-medium">{midi ? midi.name : t.selectDemo}</span>
@@ -178,7 +177,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Right: 2D/3D + Play Mode (Magic Keys / QWERTY) + Language + Clean Mode + Record + Inspector */}
+      {/* Right: Clean, minimal studio controls */}
       <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
         {/* Quick 2D / 3D Switch */}
         <div className="hidden lg:flex items-center p-1 rounded-xl bg-slate-950/72 backdrop-blur-xl border border-white/10">
@@ -208,7 +207,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
 
-        {/* Quick Interactive Play Mode Toggle (Auto -> Magic Keys -> QWERTY) */}
+        {/* Quick Play Mode Toggle (Auto -> Magic Keys -> QWERTY) */}
         <button
           type="button"
           onClick={cyclePlayMode}
@@ -219,13 +218,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 ? 'bg-emerald-500/22 border-emerald-400/50 text-emerald-100'
                 : 'bg-slate-950/72 hover:bg-slate-900/90 border-white/10 text-slate-300 hover:text-white'
           }`}
-          title={
-            playMode === 'magic-keys'
-              ? t.magicHint
-              : playMode === 'qwerty'
-                ? t.qwertyHint
-                : 'Chuyển nhanh chế độ Giả bấm (Magic Keys) / Đàn QWERTY'
-          }
+          title={playMode === 'magic-keys' ? t.magicHint : t.qwertyHint}
         >
           {playMode === 'magic-keys' ? (
             <Wand2 className="w-3.5 h-3.5 text-amber-300" />
@@ -239,19 +232,6 @@ export const TopBar: React.FC<TopBarProps> = ({
                 ? t.playModeQwerty
                 : t.playModeMagic}
           </span>
-        </button>
-
-        {/* Language Toggle VI / EN */}
-        <button
-          type="button"
-          onClick={() =>
-            onUpdateSettings({ language: settings.language === 'vi' ? 'en' : 'vi' })
-          }
-          className="hidden xl:flex items-center gap-1 px-2.5 py-2 rounded-xl bg-slate-950/72 hover:bg-slate-900/90 backdrop-blur-xl border border-white/10 text-slate-300 hover:text-white text-xs font-mono font-semibold transition cursor-pointer"
-          title="Switch Language (Tiếng Việt / English)"
-        >
-          <Globe className="w-3.5 h-3.5 text-slate-400" />
-          <span>{settings.language.toUpperCase()}</span>
         </button>
 
         {/* Clean Video Mode button */}
@@ -292,7 +272,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </button>
 
-        {/* Toggle Inspector Drawer */}
+        {/* Settings / Studio Drawer toggle */}
         <button
           type="button"
           onClick={onToggleInspector}
@@ -303,7 +283,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
           title={t.controls}
         >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <Settings className="w-3.5 h-3.5" />
           <span className="hidden md:inline">{t.controls}</span>
         </button>
       </div>

@@ -15,18 +15,14 @@ export interface Translations {
   tabPresets: string;
   tabNotes: string;
   tabFx: string;
-  tabBg: string;
-  tabAudio: string;
+  tabStage: string;
   tabPlay: string;
-  tabVideo: string;
+  tabSettings: string;
   playModeAuto: string;
   playModeQwerty: string;
   playModeMagic: string;
   magicHint: string;
   qwertyHint: string;
-  abLoopSetA: string;
-  abLoopSetB: string;
-  abLoopClear: string;
   usbMidiConnect: string;
   usbMidiDisconnect: string;
   usbMidiNone: string;
@@ -38,71 +34,29 @@ export interface Translations {
   countdownHint: string;
 }
 
-const VI: Translations = {
-  openMidi: 'Mở MIDI',
-  selectDemo: 'Chọn bài Demo',
-  demoHeader: 'Nhạc MIDI Demo Tích Hợp',
-  videoMode: 'Video Mode',
-  recordVideo: 'Quay Video',
-  controls: 'Tùy chỉnh',
-  notesUnit: 'nốt',
-  studioControls: 'Studio Controls',
-  resetDefaults: 'Khôi phục mặc định',
-  exportPreset: 'Xuất Preset',
-  importPreset: 'Nhập Preset',
-  tabPresets: 'Preset',
-  tabNotes: 'Nốt/3D',
-  tabFx: 'Glow/Hạt',
-  tabBg: 'Nền',
-  tabAudio: 'Âm/Track',
-  tabPlay: 'Chơi đàn',
-  tabVideo: 'Video',
-  playModeAuto: 'Tự động phát',
-  playModeQwerty: 'Phím QWERTY',
-  playModeMagic: 'Giả bấm (Magic)',
-  magicHint: 'Magic Keys đang bật — Gõ bất kỳ phím chữ/số nào trên bàn phím để tự đánh đúng hợp âm MIDI theo nhịp của bạn!',
-  qwertyHint: 'Chế độ Đàn QWERTY đang bật — Gõ hàng phím Z–M & Q–P để chơi đàn trực tiếp ([ / ] đổi quãng tám)',
-  abLoopSetA: 'Đặt A',
-  abLoopSetB: 'Đặt B',
-  abLoopClear: 'Xóa A-B',
-  usbMidiConnect: 'Kết nối đàn Piano USB (Web MIDI)',
-  usbMidiDisconnect: 'Ngắt kết nối MIDI USB',
-  usbMidiNone: 'Chưa thấy đàn MIDI nào — hãy cắm cáp USB rồi bấm làm mới.',
-  tracksTitle: 'Quản lý Track MIDI',
-  dropOverlayTitle: 'Thả file vào đây',
-  dropOverlayDesc: 'Hỗ trợ file .mid / .midi, ảnh nền (.png / .jpg), nhạc đồng bộ (.mp3 / .wav) hoặc preset .json.',
-  cleanModeBanner: 'Clean Video Mode đang bật — Nhấn Esc hoặc V để hiện lại giao diện • Space Phát/Dừng',
-  cleanModeExit: 'Thoát',
-  countdownHint: 'Chuẩn bị quay video siêu sạch 60fps...',
-};
-
 const EN: Translations = {
   openMidi: 'Open MIDI',
   selectDemo: 'Demo Songs',
   demoHeader: 'Built-in Demo MIDI Songs',
   videoMode: 'Video Mode',
   recordVideo: 'Record',
-  controls: 'Customize',
+  controls: 'Settings',
   notesUnit: 'notes',
-  studioControls: 'Studio Controls',
+  studioControls: 'Studio Settings',
   resetDefaults: 'Reset defaults',
   exportPreset: 'Export JSON',
   importPreset: 'Import JSON',
   tabPresets: 'Presets',
-  tabNotes: 'Notes/3D',
+  tabNotes: 'Notes',
   tabFx: 'Glow/FX',
-  tabBg: 'Backdrop',
-  tabAudio: 'Audio/Tracks',
+  tabStage: 'Stage',
   tabPlay: 'Play',
-  tabVideo: 'Video',
+  tabSettings: 'Settings',
   playModeAuto: 'Auto Play',
   playModeQwerty: 'QWERTY Piano',
   playModeMagic: 'Magic Keys',
   magicHint: 'Magic Keys Active — Tap ANY letter/number key to perform the exact next MIDI chord with your own timing!',
-  qwertyHint: 'QWERTY Piano Active — Play Z–M & Q–P rows live with full HDR particles ([ / ] shifts octave)',
-  abLoopSetA: 'Set A',
-  abLoopSetB: 'Set B',
-  abLoopClear: 'Clear A-B',
+  qwertyHint: 'QWERTY Piano Active — Play Z–M & Q–P rows live ([ / ] shifts octave, Shift = sustain)',
   usbMidiConnect: 'Connect USB MIDI Keyboard',
   usbMidiDisconnect: 'Disconnect USB MIDI',
   usbMidiNone: 'No MIDI keyboard detected yet — plug in USB MIDI and reconnect.',
@@ -114,6 +68,40 @@ const EN: Translations = {
   countdownHint: 'Starting clean 60fps video capture...',
 };
 
+const VI: Translations = {
+  openMidi: 'Mở MIDI',
+  selectDemo: 'Chọn bài Demo',
+  demoHeader: 'Nhạc MIDI Demo Tích Hợp',
+  videoMode: 'Video Mode',
+  recordVideo: 'Quay Video',
+  controls: 'Cài đặt',
+  notesUnit: 'nốt',
+  studioControls: 'Cài đặt Studio',
+  resetDefaults: 'Khôi phục mặc định',
+  exportPreset: 'Xuất JSON',
+  importPreset: 'Nhập JSON',
+  tabPresets: 'Preset',
+  tabNotes: 'Nốt/3D',
+  tabFx: 'Hiệu ứng',
+  tabStage: 'Nền/Vid',
+  tabPlay: 'Âm/Chơi',
+  tabSettings: 'Cài đặt',
+  playModeAuto: 'Tự động phát',
+  playModeQwerty: 'Đàn QWERTY',
+  playModeMagic: 'Giả bấm',
+  magicHint: 'Giả bấm (Magic Keys) — Gõ BẤT KỲ phím chữ/số nào để đánh đúng hợp âm MIDI theo nhịp của bạn!',
+  qwertyHint: 'Đàn QWERTY đang bật — Gõ hàng phím Z–M & Q–P ([ / ] đổi quãng tám, Shift = Sustain)',
+  usbMidiConnect: 'Kết nối đàn Piano USB (Web MIDI)',
+  usbMidiDisconnect: 'Ngắt kết nối MIDI USB',
+  usbMidiNone: 'Chưa thấy đàn MIDI nào — hãy cắm cáp USB rồi kết nối lại.',
+  tracksTitle: 'Quản lý Track MIDI',
+  dropOverlayTitle: 'Thả file vào đây',
+  dropOverlayDesc: 'Hỗ trợ file .mid / .midi, ảnh nền (.png / .jpg), nhạc đồng bộ (.mp3 / .wav) hoặc preset .json.',
+  cleanModeBanner: 'Clean Video Mode đang bật — Nhấn Esc hoặc V để hiện lại giao diện • Space Phát/Dừng',
+  cleanModeExit: 'Thoát',
+  countdownHint: 'Chuẩn bị quay video siêu sạch 60fps...',
+};
+
 export function getTranslations(lang: Language): Translations {
-  return lang === 'en' ? EN : VI;
+  return lang === 'vi' ? VI : EN;
 }

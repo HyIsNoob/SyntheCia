@@ -24,7 +24,7 @@ import {
 } from './ui/VisualizerStage';
 import { downloadRecording, VideoExporter } from './video/VideoExporter';
 
-const STORAGE_KEY = 'synthecia.studio.v2.settings';
+const STORAGE_KEY = 'synthecia.studio.v2.1.settings';
 
 function loadSavedSettings(): VisualizerSettings {
   try {

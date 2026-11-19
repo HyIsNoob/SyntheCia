@@ -5,12 +5,13 @@ import {
   Eye,
   EyeOff,
   Flame,
+  Globe,
   Image as ImageIcon,
   Keyboard,
   Music,
-  Palette,
   Plug,
   RotateCcw,
+  Settings,
   Sparkles,
   Trash2,
   Upload,
@@ -38,7 +39,7 @@ import {
   type VisualizerSettings,
 } from '../types/visualizer';
 
-type TabId = 'presets' | 'notes' | 'fx' | 'bg' | 'audio' | 'play' | 'video';
+type TabId = 'presets' | 'notes' | 'fx' | 'stage' | 'play' | 'settings';
 
 interface InspectorDrawerProps {
   open: boolean;
@@ -183,10 +184,9 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     { id: 'presets', label: t.tabPresets, icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'notes', label: t.tabNotes, icon: <Music className="w-3.5 h-3.5" /> },
     { id: 'fx', label: t.tabFx, icon: <Flame className="w-3.5 h-3.5" /> },
-    { id: 'bg', label: t.tabBg, icon: <ImageIcon className="w-3.5 h-3.5" /> },
-    { id: 'audio', label: t.tabAudio, icon: <Volume2 className="w-3.5 h-3.5" /> },
+    { id: 'stage', label: t.tabStage, icon: <ImageIcon className="w-3.5 h-3.5" /> },
     { id: 'play', label: t.tabPlay, icon: <Keyboard className="w-3.5 h-3.5" /> },
-    { id: 'video', label: t.tabVideo, icon: <Video className="w-3.5 h-3.5" /> },
+    { id: 'settings', label: t.tabSettings, icon: <Settings className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -194,39 +194,23 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
         <div className="flex items-center gap-2">
-          <Palette className="w-4 h-4 text-violet-400" />
+          <Settings className="w-4 h-4 text-violet-400" />
           <span className="text-xs font-bold uppercase tracking-wider text-white">
             {t.studioControls}
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() =>
-              onUpdateSettings({
-                ...DEFAULT_SETTINGS,
-                language: settings.language,
-                customBgUrl: settings.customBgUrl,
-              })
-            }
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-            title={t.resetDefaults}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+          title="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* 7 Compact Tabs */}
-      <div className="grid grid-cols-7 gap-0.5 p-1.5 border-b border-white/10 bg-black/25">
+      {/* 6 Spacious, Zero-Truncation Tabs */}
+      <div className="grid grid-cols-6 gap-1 p-1.5 border-b border-white/10 bg-black/25">
         {tabs.map((tb) => {
           const active = tab === tb.id;
           return (
@@ -234,14 +218,14 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               key={tb.id}
               type="button"
               onClick={() => setTab(tb.id)}
-              className={`flex flex-col items-center justify-center gap-1 py-1.5 px-0.5 rounded-xl text-[9px] font-semibold transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
                 active
                   ? 'bg-violet-500/25 text-white border border-violet-400/35 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
               }`}
             >
               {tb.icon}
-              <span className="truncate max-w-full">{tb.label}</span>
+              <span className="whitespace-nowrap">{tb.label}</span>
             </button>
           );
         })}
@@ -249,13 +233,13 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto studio-scroll p-4 space-y-4">
-        {/* PRESETS TAB */}
+        {/* 1. PRESETS TAB */}
         {tab === 'presets' && (
           <div className="space-y-2.5">
             <p className="text-[11px] text-slate-400 leading-relaxed">
               {isEn
-                ? 'Choose a curated AAA visual style or export/import custom presets (.json). Settings auto-save locally.'
-                : 'Chọn nhanh phong cách đồ họa AAA hoặc xuất/nhập file preset (.json). Mọi tùy chỉnh tự động lưu vào trình duyệt.'}
+                ? 'One-click AAA visual presets. Fine-tune notes, bloom, particles, and stage in the adjacent tabs.'
+                : 'Chọn nhanh phong cách đồ họa AAA rồi tinh chỉnh chi tiết ở các tab bên cạnh.'}
             </p>
             {VISUAL_PRESETS.map((preset) => {
               const selected = activePresetId === preset.id;
@@ -285,67 +269,10 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 </button>
               );
             })}
-
-            <SectionTitle>{isEn ? 'Share & Preferences' : 'Chia sẻ Preset & Tùy chọn'}</SectionTitle>
-            <input
-              ref={presetInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  onImportPresetJson(file);
-                  e.target.value = '';
-                }
-              }}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={onExportPresetJson}
-                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-violet-300" />
-                <span>{t.exportPreset}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => presetInputRef.current?.click()}
-                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5 text-cyan-300" />
-                <span>{t.importPreset}</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 pt-1">
-              {(['vi', 'en'] as const).map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  onClick={() => onUpdateSettings({ language: lang })}
-                  className={`py-1.5 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
-                    settings.language === lang
-                      ? 'bg-violet-500/25 border-violet-400/50 text-white'
-                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {lang === 'vi' ? 'Tiếng Việt' : 'English'}
-                </button>
-              ))}
-            </div>
-
-            <ToggleRow
-              label={isEn ? 'Show FPS & Particle Telemetry' : 'Hiện bộ đếm FPS & Số hạt GPU'}
-              hint={isEn ? 'Auto-hidden in Clean Video Mode' : 'Tự động ẩn 100% khi vào Video Mode'}
-              checked={settings.showPerfStats}
-              onChange={(v) => onUpdateSettings({ showPerfStats: v })}
-            />
           </div>
         )}
 
-        {/* NOTES & 3D TAB */}
+        {/* 2. NOTES & 3D TAB */}
         {tab === 'notes' && (
           <div className="space-y-3.5">
             <SectionTitle>{isEn ? 'Camera View' : 'Góc nhìn (Camera)'}</SectionTitle>
@@ -361,7 +288,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                       : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
                   }`}
                 >
-                  {m === '2d' ? '2D Classic (Embers)' : '3D Perspective Highway'}
+                  {m === '2d' ? '2D Classic' : '3D Highway'}
                 </button>
               ))}
             </div>
@@ -490,30 +417,29 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             />
 
             <ToggleRow
-              label={isEn ? 'Note Pitch Labels (C#, D...)' : 'Hiện tên nốt trên thanh rơi (C#, D...)'}
+              label={isEn ? 'Note Pitch Labels (C#, D...)' : 'Hiện tên nốt (C#, D...)'}
               checked={settings.showNoteLabels}
               onChange={(v) => onUpdateSettings({ showNoteLabels: v })}
             />
             <ToggleRow
-              label={isEn ? 'Measure Bars & Octave Lines' : 'Vạch ô nhịp & đường quãng tám'}
+              label={isEn ? 'Measure Bars & Octave Lines' : 'Vạch ô nhịp & quãng tám'}
               checked={settings.showMeasureGrid}
               onChange={(v) => onUpdateSettings({ showMeasureGrid: v })}
             />
             <ToggleRow
-              label={isEn ? 'Auto Chord Badges (Cmaj7, F#...)' : 'Tự nhận diện ký hiệu Hợp âm'}
+              label={isEn ? 'Auto Chord Badges (Cmaj7, F#...)' : 'Tự nhận diện Hợp âm'}
               checked={settings.showChordLabels}
               onChange={(v) => onUpdateSettings({ showChordLabels: v })}
             />
             <ToggleRow
-              label={isEn ? 'Keyboard Octave Labels (C1–C8)' : 'Hiện nhãn quãng C1–C8 trên phím'}
+              label={isEn ? 'Keyboard Octave Labels (C1–C8)' : 'Nhãn quãng C1–C8 trên phím'}
               checked={settings.showKeyOctaveLabels}
               onChange={(v) => onUpdateSettings({ showKeyOctaveLabels: v })}
             />
 
-            <SectionTitle>{isEn ? 'Optional Energy Finger Guide' : 'Hiệu ứng Dẫn ngón (Tùy chọn)'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Optional Finger Energy Guide' : 'Dẫn ngón năng lượng (Tùy chọn)'}</SectionTitle>
             <ToggleRow
-              label={isEn ? 'Enable Sleek Finger Aura Guide' : 'Bật hiệu ứng điểm sáng vị trí ngón'}
-              hint={isEn ? 'Minimalist glowing energy fingertips (off by default)' : 'Tắt mặc định — hiển thị vệt năng lượng ngón tay tối giản'}
+              label={isEn ? 'Show Finger Aura Guide' : 'Bật hiệu ứng điểm sáng ngón tay'}
               checked={settings.showHands}
               onChange={(v) => onUpdateSettings({ showHands: v })}
             />
@@ -555,7 +481,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           </div>
         )}
 
-        {/* GLOW, CONCERT FX & PARTICLES TAB */}
+        {/* 3. GLOW & FX TAB */}
         {tab === 'fx' && (
           <div className="space-y-3.5">
             <SectionTitle>{isEn ? '3-Octave Optical HDR Bloom' : 'AAA Optical HDR Bloom (3 Tầng)'}</SectionTitle>
@@ -578,7 +504,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ bloomRadius: v })}
             />
             <SliderRow
-              label={isEn ? 'Bloom Threshold' : 'Ngưỡng tách sáng (Threshold)'}
+              label={isEn ? 'Bloom Threshold' : 'Ngưỡng tách sáng'}
               valueText={`${Math.round(settings.bloomThreshold * 100)}%`}
               value={settings.bloomThreshold}
               min={0.1}
@@ -587,7 +513,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ bloomThreshold: v })}
             />
             <SliderRow
-              label={isEn ? 'Note Edge Luminance' : 'Độ rực lõi nốt (Note Glow)'}
+              label={isEn ? 'Note Edge Luminance' : 'Độ rực lõi nốt'}
               valueText={`${Math.round(settings.noteGlowIntensity * 100)}%`}
               value={settings.noteGlowIntensity}
               min={0}
@@ -596,7 +522,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ noteGlowIntensity: v })}
             />
             <SliderRow
-              label={isEn ? 'Image Clarity (Sharpness)' : 'Độ sắc nét khung hình (Sharpness)'}
+              label={isEn ? 'Image Clarity (Sharpness)' : 'Độ sắc nét khung hình'}
               valueText={`${Math.round(settings.sharpness * 100)}%`}
               value={settings.sharpness}
               min={0}
@@ -605,7 +531,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ sharpness: v })}
             />
             <SliderRow
-              label={isEn ? 'Chromatic Prism' : 'Tán sắc Lăng kính (Chromatic)'}
+              label={isEn ? 'Chromatic Prism' : 'Tán sắc Lăng kính'}
               valueText={`${Math.round(settings.chromaticAberration * 100)}%`}
               value={settings.chromaticAberration}
               min={0}
@@ -616,7 +542,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
             <SectionTitle>{isEn ? 'Concert Stage FX' : 'Hiệu ứng Sân khấu Concert'}</SectionTitle>
             <ToggleRow
-              label={isEn ? 'Live Audio EQ Spectrum' : 'Sóng quang phổ Audio EQ theo nhạc'}
+              label={isEn ? 'Live Audio EQ Spectrum' : 'Sóng quang phổ Audio EQ'}
               checked={settings.eqSpectrumEnabled}
               onChange={(v) => onUpdateSettings({ eqSpectrumEnabled: v })}
             />
@@ -632,7 +558,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               />
             )}
             <ToggleRow
-              label={isEn ? 'Piano Mirror Reflection' : 'Phản chiếu gương mặt đàn Piano'}
+              label={isEn ? 'Piano Mirror Reflection' : 'Phản chiếu gương mặt đàn'}
               checked={settings.mirrorReflectionEnabled}
               onChange={(v) => onUpdateSettings({ mirrorReflectionEnabled: v })}
             />
@@ -648,12 +574,12 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               />
             )}
             <ToggleRow
-              label={isEn ? 'Sustain Pedal (CC64) Resonance Aura' : 'Ánh sáng cộng hưởng bàn đạp Sustain'}
+              label={isEn ? 'Sustain Pedal (CC64) Aura' : 'Ánh sáng cộng hưởng Sustain'}
               checked={settings.sustainAuraEnabled}
               onChange={(v) => onUpdateSettings({ sustainAuraEnabled: v })}
             />
             <ToggleRow
-              label={isEn ? 'Plasma Strike Edge & Lens Flares' : 'Dải sóng Plasma & Anamorphic Flare'}
+              label={isEn ? 'Plasma Strike Edge & Lens Flares' : 'Sóng Plasma & Anamorphic Flare'}
               checked={settings.plasmaEdgeWave}
               onChange={(v) => onUpdateSettings({ plasmaEdgeWave: v })}
             />
@@ -669,7 +595,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               />
             )}
             <ToggleRow
-              label={isEn ? 'Vertical Key Light Shafts' : 'Cột ánh sáng hắt lên (God-Rays)'}
+              label={isEn ? 'Vertical Key Light Shafts' : 'Cột ánh sáng hắt lên'}
               checked={settings.keyLightBeams}
               onChange={(v) => onUpdateSettings({ keyLightBeams: v })}
             />
@@ -685,21 +611,21 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               />
             )}
 
-            <SectionTitle>{isEn ? 'GPU Physics Particles' : 'Hạt Vật lý GPU (Physics Particles)'}</SectionTitle>
+            <SectionTitle>{isEn ? 'GPU Physics Particles' : 'Hạt Vật lý GPU'}</SectionTitle>
             <ToggleRow
-              label={isEn ? 'Enable Particle System' : 'Bật toàn bộ hiệu ứng Hạt'}
+              label={isEn ? 'Enable Particle System' : 'Bật hiệu ứng Hạt'}
               checked={settings.particlesEnabled}
               onChange={(v) => onUpdateSettings({ particlesEnabled: v })}
             />
             {settings.particlesEnabled && (
               <div className="space-y-2.5 pl-1 border-l-2 border-violet-500/30">
                 <ToggleRow
-                  label={isEn ? 'Curl-Noise Fluid Silk Plumes' : 'Lụa khói Curl-Noise (Buoyancy)'}
+                  label={isEn ? 'Curl-Noise Fluid Silk Plumes' : 'Lụa khói Curl-Noise'}
                   checked={settings.fluidSilkEnabled}
                   onChange={(v) => onUpdateSettings({ fluidSilkEnabled: v })}
                 />
                 <ToggleRow
-                  label={isEn ? 'Bouncing Comet Spark Streaks' : 'Tia lửa kéo vệt & nảy mép phím'}
+                  label={isEn ? 'Bouncing Comet Spark Streaks' : 'Tia lửa kéo vệt & nảy phím'}
                   checked={settings.sparksEnabled}
                   onChange={(v) => onUpdateSettings({ sparksEnabled: v })}
                 />
@@ -709,7 +635,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   onChange={(v) => onUpdateSettings({ stardustEnabled: v })}
                 />
                 <ToggleRow
-                  label={isEn ? 'Impact Shockwave Rings' : 'Vòng sóng chấn động (Shockwaves)'}
+                  label={isEn ? 'Impact Shockwave Rings' : 'Vòng sóng chấn động'}
                   checked={settings.shockwavesEnabled}
                   onChange={(v) => onUpdateSettings({ shockwavesEnabled: v })}
                 />
@@ -724,7 +650,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   onChange={(v) => onUpdateSettings({ particleDensity: v })}
                 />
                 <SliderRow
-                  label={isEn ? 'Curl Turbulence' : 'Độ cuộn xoáy (Turbulence)'}
+                  label={isEn ? 'Curl Turbulence' : 'Độ cuộn xoáy'}
                   valueText={`${settings.particleTurbulence.toFixed(2)}x`}
                   value={settings.particleTurbulence}
                   min={0.2}
@@ -755,10 +681,10 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           </div>
         )}
 
-        {/* BACKGROUND TAB */}
-        {tab === 'bg' && (
+        {/* 4. STAGE TAB (Custom Backdrop + Clean Video Mode & 60fps Capture) */}
+        {tab === 'stage' && (
           <div className="space-y-3.5">
-            <SectionTitle>{isEn ? 'Custom Backdrop Image' : 'Ảnh nền Custom (Có Cache GPU)'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Custom Backdrop (GPU-Cached Blur)' : 'Ảnh nền Custom (Có Cache Blur)'}</SectionTitle>
             <input
               ref={bgInputRef}
               type="file"
@@ -809,7 +735,6 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               </div>
             )}
 
-            <SectionTitle>{isEn ? 'Animated Backdrops' : 'Nền động tích hợp'}</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
@@ -823,7 +748,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   key={bg.id}
                   type="button"
                   onClick={() => onUpdateSettings({ backgroundPreset: bg.id })}
-                  className={`py-2 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
+                  className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
                     settings.backgroundPreset === bg.id
                       ? 'bg-violet-500/25 border-violet-400/50 text-white'
                       : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
@@ -834,9 +759,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               ))}
             </div>
 
-            <SectionTitle>{isEn ? 'Backdrop Adjustments' : 'Tinh chỉnh Ánh sáng & Độ mờ nền'}</SectionTitle>
             <SliderRow
-              label={isEn ? 'Opacity / Dim' : 'Độ rõ / Độ mờ nền (Opacity)'}
+              label={isEn ? 'Backdrop Opacity / Dim' : 'Độ rõ / Độ mờ nền'}
               valueText={`${Math.round(settings.bgOpacity * 100)}%`}
               value={settings.bgOpacity}
               min={0}
@@ -845,7 +769,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ bgOpacity: v })}
             />
             <SliderRow
-              label={isEn ? 'Gaussian Blur (Cached)' : 'Độ nhòe nền (Blur mượt)'}
+              label={isEn ? 'Backdrop Blur' : 'Độ nhòe nền (Blur)'}
               valueText={`${settings.bgBlur.toFixed(0)} px`}
               value={settings.bgBlur}
               min={0}
@@ -872,7 +796,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ bgSaturation: v })}
             />
             <SliderRow
-              label={isEn ? 'Vignette' : 'Làm tối 4 góc (Vignette)'}
+              label={isEn ? 'Vignette' : 'Làm tối 4 góc'}
               valueText={`${Math.round(settings.bgVignette * 100)}%`}
               value={settings.bgVignette}
               min={0}
@@ -881,7 +805,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ bgVignette: v })}
             />
             <SliderRow
-              label={isEn ? 'Bass Audio Pulse' : 'Nhịp thở nền theo Bass nhạc'}
+              label={isEn ? 'Bass Audio Pulse' : 'Nhịp thở theo Bass'}
               valueText={`${Math.round(settings.bgAudioPulse * 100)}%`}
               value={settings.bgAudioPulse}
               min={0}
@@ -889,13 +813,233 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               step={0.05}
               onChange={(v) => onUpdateSettings({ bgAudioPulse: v })}
             />
+
+            <SectionTitle>{isEn ? 'Clean Video Mode & 60fps Capture' : 'Quay Video Sạch 60fps'}</SectionTitle>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { id: 'full', label: isEn ? 'Full Window' : 'Full Màn hình' },
+                  { id: '16:9', label: '16:9 YouTube' },
+                  { id: '9:16', label: '9:16 TikTok' },
+                  { id: '1:1', label: isEn ? '1:1 Square' : '1:1 Vuông' },
+                ] as Array<{ id: AspectRatioMode; label: string }>
+              ).map((ar) => (
+                <button
+                  key={ar.id}
+                  type="button"
+                  onClick={() => onUpdateSettings({ aspectRatio: ar.id })}
+                  className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
+                    settings.aspectRatio === ar.id
+                      ? 'bg-cyan-500/25 border-cyan-400/50 text-white'
+                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                  }`}
+                >
+                  {ar.label}
+                </button>
+              ))}
+            </div>
+
+            <SliderRow
+              label={isEn ? 'Video Bitrate' : 'Chất lượng Video'}
+              valueText={`${settings.recordBitrateMbps} Mbps`}
+              value={settings.recordBitrateMbps}
+              min={8}
+              max={24}
+              step={2}
+              onChange={(v) => onUpdateSettings({ recordBitrateMbps: v })}
+            />
+            <ToggleRow
+              label={isEn ? '3-2-1 Countdown before capture' : 'Đếm ngược 3-2-1 trước khi quay'}
+              checked={settings.recordCountdown}
+              onChange={(v) => onUpdateSettings({ recordCountdown: v })}
+            />
+            <ToggleRow
+              label={isEn ? 'Auto-restart from 0:00' : 'Tự động tua về đầu bài'}
+              checked={settings.recordAutoStart}
+              onChange={(v) => onUpdateSettings({ recordAutoStart: v })}
+            />
+            <ToggleRow
+              label={isEn ? 'Auto-stop & download at end' : 'Tự dừng & tải video khi hết bài'}
+              checked={settings.recordAutoStop}
+              onChange={(v) => onUpdateSettings({ recordAutoStop: v })}
+            />
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={onEnterCleanMode}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-100 text-xs font-bold transition cursor-pointer"
+              >
+                <EyeOff className="w-4 h-4 text-cyan-300" />
+                <span>{isEn ? 'Enter Clean Video Mode (OBS)' : 'Vào Clean Video Mode (OBS)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleRecording}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  isRecording
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_24px_rgba(244,63,94,0.65)]'
+                    : 'bg-gradient-to-r from-rose-600 to-violet-600 hover:from-rose-500 hover:to-violet-500 text-white shadow-[0_0_24px_rgba(139,92,246,0.4)]'
+                }`}
+              >
+                <Video className="w-4 h-4" />
+                <span>
+                  {isRecording
+                    ? isEn
+                      ? 'Stop & Save Video'
+                      : 'Dừng Quay & Lưu Video'
+                    : isEn
+                      ? 'Record & Export 60fps Video'
+                      : 'Quay & Xuất Video 60fps'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onTakeSnapshot}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/8 hover:bg-white/14 text-slate-200 text-xs font-semibold transition cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Capture Frame Snapshot (PNG)' : 'Chụp ảnh khung hình (PNG)'}</span>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* AUDIO & MIDI TRACK MANAGER TAB */}
-        {tab === 'audio' && (
+        {/* 5. PLAY & AUDIO TAB (Magic Keys + QWERTY + USB MIDI + Sound + Track Manager) */}
+        {tab === 'play' && (
           <div className="space-y-3.5">
-            <SectionTitle>{isEn ? 'Piano Sound Engine' : 'Nguồn Âm thanh Piano'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Interactive Play Mode' : 'Chế độ Chơi đàn'}</SectionTitle>
+
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => onChangePlayMode('auto')}
+                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  playMode === 'auto'
+                    ? 'bg-violet-500/22 border-violet-400/50 text-white'
+                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
+                }`}
+              >
+                <div className="text-xs font-bold">{t.playModeAuto}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  {isEn ? 'Standard automatic MIDI playback.' : 'Phát nhạc MIDI tự động chuẩn.'}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onChangePlayMode('magic-keys')}
+                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  playMode === 'magic-keys'
+                    ? 'bg-amber-500/22 border-amber-400/55 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
+                }`}
+              >
+                <div className="text-xs font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                    <span>{t.playModeMagic}</span>
+                  </span>
+                  {playMode === 'magic-keys' && magicProgress.totalSteps > 0 && (
+                    <span className="font-mono text-[10px] text-amber-200">
+                      {magicProgress.stepIndex}/{magicProgress.totalSteps}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                  {isEn
+                    ? 'Tap ANY letter/number key to play the exact next MIDI chord with your own timing!'
+                    : 'Gõ BẤT KỲ phím chữ/số nào là tự đánh đúng hợp âm tiếp theo theo nhịp của bạn!'}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onChangePlayMode('qwerty')}
+                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  playMode === 'qwerty'
+                    ? 'bg-emerald-500/20 border-emerald-400/50 text-white'
+                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
+                }`}
+              >
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <Keyboard className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>{t.playModeQwerty}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                  {isEn
+                    ? 'Play 2+ live octaves on Z–M & Q–P. Hold Shift for sustain!'
+                    : 'Chơi hơn 2 quãng tám trên hàng Z–M & Q–P. Giữ Shift để đạp Sustain!'}
+                </div>
+              </button>
+            </div>
+
+            {playMode === 'qwerty' && (
+              <div className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-400/25 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-emerald-200 font-semibold">
+                    {isEn ? 'Base Octave' : 'Quãng tám gốc'}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onChangeQwertyOctave(Math.max(-2, qwertyOctaveShift - 1))}
+                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono text-white cursor-pointer"
+                    >
+                      −
+                    </button>
+                    <span className="font-mono text-emerald-300 w-8 text-center">
+                      C{4 + qwertyOctaveShift}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onChangeQwertyOctave(Math.min(2, qwertyOctaveShift + 1))}
+                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono text-white cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[10px] font-mono text-slate-300 leading-relaxed">
+                  <div>Q 2 W 3 E R 5 T 6 Y 7 U I 9 O 0 P</div>
+                  <div>Z S X D C V G B H N J M , L . ; /</div>
+                </div>
+              </div>
+            )}
+
+            <SectionTitle>USB MIDI Keyboard (Web MIDI)</SectionTitle>
+            <button
+              type="button"
+              onClick={onToggleUsbMidi}
+              disabled={!usbMidiSupported}
+              className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                usbMidiConnected
+                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50 text-emerald-100'
+                  : 'bg-white/8 hover:bg-white/14 border-white/15 text-white'
+              }`}
+            >
+              <Plug className="w-3.5 h-3.5" />
+              <span>{usbMidiConnected ? t.usbMidiDisconnect : t.usbMidiConnect}</span>
+            </button>
+
+            {usbMidiConnected && (
+              <div className="p-2 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
+                {usbMidiDevices.length === 0 ? (
+                  <div className="text-[11px] text-slate-400">{t.usbMidiNone}</div>
+                ) : (
+                  usbMidiDevices.map((d) => (
+                    <div key={d.id} className="flex items-center justify-between text-[11px]">
+                      <span className="text-emerald-300 font-semibold truncate">{d.name}</span>
+                      <span className="text-[10px] text-slate-400">LIVE</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            <SectionTitle>{isEn ? 'Piano Sound Engine' : 'Âm thanh Piano'}</SectionTitle>
             <div className="space-y-1.5">
               {(
                 [
@@ -906,32 +1050,26 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                       sampleState === 'ready'
                         ? isEn
                           ? 'Concert grand samples loaded'
-                          : 'Đã tải đủ bộ mẫu thu Grand Piano'
+                          : 'Đã tải đủ mẫu thu Grand Piano'
                         : sampleState === 'loading'
-                          ? `${isEn ? 'Loading samples' : 'Đang tải mẫu thu'} (${sampleProgress.loaded}/${sampleProgress.total})...`
+                          ? `${isEn ? 'Loading' : 'Đang tải'} (${sampleProgress.loaded}/${sampleProgress.total})...`
                           : sampleState === 'fallback'
                             ? isEn
-                              ? 'Offline — using Studio Synth fallback'
-                              : 'Không có mạng — dùng Synth dự phòng'
+                              ? 'Offline — using Studio Synth'
+                              : 'Offline — dùng Synth dự phòng'
                             : isEn
-                              ? 'Loads automatically on first play'
-                              : 'Tự động tải nhẹ khi bắt đầu phát nhạc',
+                              ? 'Loads on first play'
+                              : 'Tự tải khi phát nhạc',
                   },
                   {
                     id: 'synth',
-                    title: isEn ? 'Offline Studio Piano Synth' : 'Studio Piano Synth (100% Offline)',
-                    desc: isEn
-                      ? 'Multi-harmonic acoustic piano synth + hall reverb'
-                      : 'Tổng hợp âm thanh đàn piano đa hài âm + reverb',
+                    title: isEn ? 'Offline Studio Synth' : 'Studio Synth (100% Offline)',
+                    desc: isEn ? 'Multi-harmonic piano + hall reverb' : 'Piano đa hài âm + reverb',
                   },
                   {
                     id: 'custom-audio',
-                    title: isEn ? 'Custom Sync Audio (.mp3 / .wav)' : 'File nhạc rời (.mp3 / .wav)',
-                    desc: customAudioName
-                      ? `${isEn ? 'Loaded' : 'Đang dùng'}: ${customAudioName}`
-                      : isEn
-                        ? 'Sync your real studio recording to the MIDI'
-                        : 'Đồng bộ bản thu thật của bạn với file MIDI',
+                    title: isEn ? 'Custom Sync Audio (.mp3/.wav)' : 'File nhạc rời (.mp3/.wav)',
+                    desc: customAudioName ?? (isEn ? 'Sync a real recording to MIDI' : 'Đồng bộ bản thu thật'),
                   },
                 ] as Array<{ id: AudioMode; title: string; desc: string }>
               ).map((am) => (
@@ -939,14 +1077,14 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   key={am.id}
                   type="button"
                   onClick={() => onUpdateSettings({ audioMode: am.id })}
-                  className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  className={`w-full text-left p-2 rounded-xl border transition cursor-pointer ${
                     settings.audioMode === am.id
                       ? 'bg-violet-500/20 border-violet-400/50 text-white'
                       : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
                   }`}
                 >
                   <div className="text-xs font-semibold">{am.title}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{am.desc}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 truncate">{am.desc}</div>
                 </button>
               ))}
             </div>
@@ -972,7 +1110,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white transition cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Load Sync Audio (.mp3/.wav)' : 'Nạp file nhạc (.mp3/.wav)'}</span>
+                <span>{isEn ? 'Load Sync Audio' : 'Nạp file nhạc (.mp3/.wav)'}</span>
               </button>
               {customAudioName && (
                 <button
@@ -987,7 +1125,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
             {settings.audioMode === 'custom-audio' && (
               <SliderRow
-                label={isEn ? 'Audio Sync Offset' : 'Căn chỉnh độ trễ Audio (Offset)'}
+                label={isEn ? 'Audio Sync Offset' : 'Độ trễ Audio (Offset)'}
                 valueText={`${settings.customAudioOffsetMs >= 0 ? '+' : ''}${settings.customAudioOffsetMs} ms`}
                 value={settings.customAudioOffsetMs}
                 min={-2000}
@@ -997,7 +1135,6 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               />
             )}
 
-            <SectionTitle>Master Mix</SectionTitle>
             <SliderRow
               label={isEn ? 'Master Volume' : 'Âm lượng tổng'}
               valueText={`${Math.round(settings.masterVolume * 100)}%`}
@@ -1008,7 +1145,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ masterVolume: v })}
             />
             <SliderRow
-              label={isEn ? 'Concert Hall Reverb' : 'Độ vang Phòng hòa nhạc'}
+              label={isEn ? 'Hall Reverb' : 'Độ vang phòng hòa nhạc'}
               valueText={`${Math.round(settings.reverbMix * 100)}%`}
               value={settings.reverbMix}
               min={0}
@@ -1017,7 +1154,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ reverbMix: v })}
             />
 
-            {/* Phase 2: MIDI Track Manager */}
+            {/* MIDI Track Manager */}
             {midi && midi.tracks.length > 0 && (
               <>
                 <div className="flex items-center justify-between pt-2 pb-1 border-b border-white/8">
@@ -1054,7 +1191,6 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                             onUpdateTrackOverride(tr.trackIndex, { color: e.target.value })
                           }
                           className="w-5 h-5 rounded bg-transparent border-0 cursor-pointer shrink-0"
-                          title={isEn ? 'Track custom color' : 'Đổi màu riêng cho track này'}
                         />
                         <div className="flex-1 min-w-0">
                           <div className="text-[11px] font-semibold text-slate-200 truncate">
@@ -1072,7 +1208,6 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                             })
                           }
                           className="px-1.5 py-0.5 rounded bg-white/8 hover:bg-white/15 text-[10px] font-mono text-slate-300 cursor-pointer"
-                          title={isEn ? 'Toggle Left / Right hand' : 'Đổi Tay Trái / Tay Phải'}
                         >
                           {hand === 'left' ? 'LH' : 'RH'}
                         </button>
@@ -1080,11 +1215,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                           type="button"
                           onClick={() => onUpdateTrackOverride(tr.trackIndex, { muted: !muted })}
                           className={`p-1 rounded-lg transition cursor-pointer ${
-                            muted
-                              ? 'bg-rose-500/25 text-rose-300'
-                              : 'text-slate-300 hover:bg-white/10'
+                            muted ? 'bg-rose-500/25 text-rose-300' : 'text-slate-300 hover:bg-white/10'
                           }`}
-                          title={muted ? 'Unmute track' : 'Mute track'}
                         >
                           {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                         </button>
@@ -1092,11 +1224,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                           type="button"
                           onClick={() => onUpdateTrackOverride(tr.trackIndex, { hidden: !hidden })}
                           className={`p-1 rounded-lg transition cursor-pointer ${
-                            hidden
-                              ? 'bg-amber-500/25 text-amber-300'
-                              : 'text-slate-300 hover:bg-white/10'
+                            hidden ? 'bg-amber-500/25 text-amber-300' : 'text-slate-300 hover:bg-white/10'
                           }`}
-                          title={hidden ? 'Show track' : 'Hide track'}
                         >
                           {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
@@ -1109,250 +1238,109 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           </div>
         )}
 
-        {/* PLAY / PERFORM TAB (Magic Keys + QWERTY Piano + Web MIDI USB!) */}
-        {tab === 'play' && (
-          <div className="space-y-3.5">
-            <SectionTitle>{isEn ? 'Performance Mode' : 'Chế độ Chơi đàn tương tác'}</SectionTitle>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => onChangePlayMode('auto')}
-                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
-                  playMode === 'auto'
-                    ? 'bg-violet-500/22 border-violet-400/50 text-white'
-                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
-                }`}
-              >
-                <div className="text-xs font-bold">{t.playModeAuto}</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {isEn
-                    ? 'Standard automatic MIDI playback with transport controls.'
-                    : 'Phát nhạc MIDI tự động chuẩn để nghe và quay video.'}
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onChangePlayMode('magic-keys')}
-                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
-                  playMode === 'magic-keys'
-                    ? 'bg-amber-500/22 border-amber-400/55 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
-                }`}
-              >
-                <div className="text-xs font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Wand2 className="w-3.5 h-3.5 text-amber-300" />
-                    <span>{t.playModeMagic}</span>
-                  </span>
-                  {playMode === 'magic-keys' && magicProgress.totalSteps > 0 && (
-                    <span className="font-mono text-[10px] text-amber-200">
-                      {magicProgress.stepIndex}/{magicProgress.totalSteps}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
-                  {isEn
-                    ? 'Tap ANY letter/number key to play the exact next MIDI chord with your own rubato timing — like a real pianist!'
-                    : 'Gõ BẤT KỲ phím chữ/số nào trên bàn phím là tự đánh đúng hợp âm/nốt tiếp theo của bài MIDI — bạn chỉ cần giữ nhịp như chơi đàn thật!'}
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onChangePlayMode('qwerty')}
-                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
-                  playMode === 'qwerty'
-                    ? 'bg-emerald-500/20 border-emerald-400/50 text-white'
-                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
-                }`}
-              >
-                <div className="text-xs font-bold flex items-center gap-1.5">
-                  <Keyboard className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>{t.playModeQwerty}</span>
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
-                  {isEn
-                    ? 'Play 2+ live octaves on your computer keyboard: Z–M (lower) and Q–P (upper). Hold Shift for sustain!'
-                    : 'Chơi trực tiếp hơn 2 quãng tám bằng hàng phím Z–M (trầm) và Q–P (cao). Giữ Shift để đạp pedal Sustain!'}
-                </div>
-              </button>
-            </div>
-
-            {playMode === 'qwerty' && (
-              <div className="p-3 rounded-xl bg-emerald-950/35 border border-emerald-400/25 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-emerald-200 font-semibold">
-                    {isEn ? 'Base Octave' : 'Quãng tám gốc'}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onChangeQwertyOctave(Math.max(-2, qwertyOctaveShift - 1))}
-                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono text-white cursor-pointer"
-                    >
-                      −
-                    </button>
-                    <span className="font-mono text-emerald-300 w-9 text-center">
-                      C{4 + qwertyOctaveShift}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onChangeQwertyOctave(Math.min(2, qwertyOctaveShift + 1))}
-                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono text-white cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                <div className="text-[10px] font-mono text-slate-300 leading-relaxed">
-                  <div>Upper: Q 2 W 3 E R 5 T 6 Y 7 U I 9 O 0 P</div>
-                  <div>Lower: Z S X D C V G B H N J M , L . ; /</div>
-                </div>
-              </div>
-            )}
-
-            <SectionTitle>USB MIDI Keyboard (Web MIDI API)</SectionTitle>
-            <button
-              type="button"
-              onClick={onToggleUsbMidi}
-              disabled={!usbMidiSupported}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold border transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
-                usbMidiConnected
-                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50 text-emerald-100'
-                  : 'bg-white/8 hover:bg-white/14 border-white/15 text-white'
-              }`}
-            >
-              <Plug className="w-4 h-4" />
-              <span>{usbMidiConnected ? t.usbMidiDisconnect : t.usbMidiConnect}</span>
-            </button>
-
-            {!usbMidiSupported && (
-              <p className="text-[10px] text-amber-300/90">
-                {isEn
-                  ? 'Web MIDI requires Chrome, Edge, or Opera.'
-                  : 'Web MIDI API cần trình duyệt Chrome, Edge hoặc Opera.'}
-              </p>
-            )}
-
-            {usbMidiConnected && (
-              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
-                {usbMidiDevices.length === 0 ? (
-                  <div className="text-[11px] text-slate-400">{t.usbMidiNone}</div>
-                ) : (
-                  usbMidiDevices.map((d) => (
-                    <div key={d.id} className="flex items-center justify-between text-[11px]">
-                      <span className="text-emerald-300 font-semibold truncate">{d.name}</span>
-                      <span className="text-[10px] text-slate-400">LIVE</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* VIDEO MODE TAB */}
-        {tab === 'video' && (
-          <div className="space-y-3.5">
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              {isEn
-                ? '100% zero-UI capture mode for OBS or direct 60fps WebM/MP4 video export with synced studio audio.'
-                : 'Chế độ quay video sạch 100% — ẩn toàn bộ thanh công cụ và con trỏ chuột. Quay bằng OBS hoặc xuất video 60fps có tiếng ngay tại đây.'}
-            </p>
-
-            <SectionTitle>{isEn ? 'Aspect Ratio' : 'Tỷ lệ Khung hình'}</SectionTitle>
-            <div className="grid grid-cols-2 gap-1.5">
+        {/* 6. DEDICATED SETTINGS TAB (Language, Telemetry, Preset Backup, Reset, Shortcuts) */}
+        {tab === 'settings' && (
+          <div className="space-y-4">
+            <SectionTitle>
+              <span className="inline-flex items-center gap-1.5">
+                <Globe className="w-3 h-3" />
+                {isEn ? 'Language' : 'Ngôn ngữ (Language)'}
+              </span>
+            </SectionTitle>
+            <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { id: 'full', label: isEn ? 'Full Window' : 'Full Màn hình' },
-                  { id: '16:9', label: '16:9 YouTube' },
-                  { id: '9:16', label: '9:16 TikTok/Shorts' },
-                  { id: '1:1', label: isEn ? '1:1 Square' : '1:1 Vuông' },
-                ] as Array<{ id: AspectRatioMode; label: string }>
-              ).map((ar) => (
+                  { id: 'en', label: 'English', sub: 'Default' },
+                  { id: 'vi', label: 'Tiếng Việt', sub: 'Vietnamese' },
+                ] as const
+              ).map((lang) => (
                 <button
-                  key={ar.id}
+                  key={lang.id}
                   type="button"
-                  onClick={() => onUpdateSettings({ aspectRatio: ar.id })}
-                  className={`py-2 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
-                    settings.aspectRatio === ar.id
-                      ? 'bg-cyan-500/25 border-cyan-400/50 text-white'
-                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                  onClick={() => onUpdateSettings({ language: lang.id })}
+                  className={`p-2.5 rounded-xl text-left border transition cursor-pointer ${
+                    settings.language === lang.id
+                      ? 'bg-violet-500/25 border-violet-400/55 text-white shadow-sm'
+                      : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
                   }`}
                 >
-                  {ar.label}
+                  <div className="text-xs font-bold">{lang.label}</div>
+                  <div className="text-[10px] text-slate-400">{lang.sub}</div>
                 </button>
               ))}
             </div>
 
-            <SectionTitle>{isEn ? 'Direct 60fps Capture' : 'Cài đặt Quay trực tiếp 60fps'}</SectionTitle>
-            <SliderRow
-              label={isEn ? 'Video Bitrate' : 'Chất lượng Video (Bitrate)'}
-              valueText={`${settings.recordBitrateMbps} Mbps`}
-              value={settings.recordBitrateMbps}
-              min={8}
-              max={24}
-              step={2}
-              onChange={(v) => onUpdateSettings({ recordBitrateMbps: v })}
-            />
+            <SectionTitle>{isEn ? 'Performance & Diagnostics' : 'Hiệu năng & Giám sát'}</SectionTitle>
             <ToggleRow
-              label={isEn ? '3-2-1 Countdown' : 'Đếm ngược 3-2-1 trước khi quay'}
-              hint={isEn ? 'Hides all chrome before frame 1' : 'Tự ẩn toàn bộ UI trước khung hình đầu tiên'}
-              checked={settings.recordCountdown}
-              onChange={(v) => onUpdateSettings({ recordCountdown: v })}
-            />
-            <ToggleRow
-              label={isEn ? 'Auto-restart from 0:00' : 'Tự động tua về đầu bài khi quay'}
-              checked={settings.recordAutoStart}
-              onChange={(v) => onUpdateSettings({ recordAutoStart: v })}
-            />
-            <ToggleRow
-              label={isEn ? 'Auto-stop & download at end' : 'Tự dừng & tải video khi hết bài'}
-              checked={settings.recordAutoStop}
-              onChange={(v) => onUpdateSettings({ recordAutoStop: v })}
+              label={isEn ? 'Show FPS & GPU Particle Counter' : 'Hiện bộ đếm FPS & Số hạt GPU'}
+              hint={isEn ? 'Automatically hidden in Clean Video Mode' : 'Tự động ẩn 100% khi vào Video Mode'}
+              checked={settings.showPerfStats}
+              onChange={(v) => onUpdateSettings({ showPerfStats: v })}
             />
 
-            <div className="space-y-2 pt-2">
+            <SectionTitle>{isEn ? 'Preset Backup & Sharing' : 'Sao lưu & Chia sẻ Preset'}</SectionTitle>
+            <input
+              ref={presetInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onImportPresetJson(file);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={onEnterCleanMode}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-100 text-xs font-bold transition cursor-pointer"
+                onClick={onExportPresetJson}
+                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
               >
-                <EyeOff className="w-4 h-4 text-cyan-300" />
-                <span>{isEn ? 'Enter Clean Video Mode (OBS)' : 'Vào Clean Video Mode (Cho OBS)'}</span>
+                <Download className="w-3.5 h-3.5 text-violet-300" />
+                <span>{t.exportPreset}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => presetInputRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 text-cyan-300" />
+                <span>{t.importPreset}</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                onUpdateSettings({
+                  ...DEFAULT_SETTINGS,
+                  language: settings.language,
+                  customBgUrl: settings.customBgUrl,
+                })
+              }
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-500/12 hover:bg-rose-500/22 border border-rose-400/25 text-rose-200 text-xs font-semibold transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{t.resetDefaults}</span>
+            </button>
 
-              <button
-                type="button"
-                onClick={onToggleRecording}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  isRecording
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_24px_rgba(244,63,94,0.65)]'
-                    : 'bg-gradient-to-r from-rose-600 to-violet-600 hover:from-rose-500 hover:to-violet-500 text-white shadow-[0_0_24px_rgba(139,92,246,0.4)]'
-                }`}
-              >
-                <Video className="w-4 h-4" />
-                <span>
-                  {isRecording
-                    ? isEn
-                      ? 'Stop & Save Video'
-                      : 'Dừng Quay & Lưu Video'
-                    : isEn
-                      ? 'Record & Export 60fps Video'
-                      : 'Bắt đầu Quay & Xuất Video 60fps'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onTakeSnapshot}
-                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/8 hover:bg-white/14 text-slate-200 text-xs font-semibold transition cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Capture Frame Snapshot (PNG)' : 'Chụp ảnh khung hình (PNG)'}</span>
-              </button>
+            <SectionTitle>{isEn ? 'Keyboard Shortcuts' : 'Phím tắt nhanh'}</SectionTitle>
+            <div className="rounded-xl bg-white/[0.03] border border-white/10 divide-y divide-white/8 text-[11px]">
+              {[
+                { key: 'Space', desc: isEn ? 'Play / Pause' : 'Phát / Tạm dừng' },
+                { key: 'V', desc: isEn ? 'Toggle Clean Video Mode' : 'Bật/tắt Clean Video Mode' },
+                { key: 'R', desc: isEn ? 'Start / Stop 60fps Record' : 'Quay / Dừng video 60fps' },
+                { key: '← / →', desc: isEn ? 'Seek ±5 seconds' : 'Tua lùi / tới 5 giây' },
+                { key: 'Esc', desc: isEn ? 'Exit Clean Mode / Drawer' : 'Thoát Video Mode / Đóng bảng' },
+              ].map((s) => (
+                <div key={s.key} className="flex items-center justify-between px-3 py-1.5">
+                  <span className="text-slate-300">{s.desc}</span>
+                  <kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px] text-violet-200">
+                    {s.key}
+                  </kbd>
+                </div>
+              ))}
             </div>
           </div>
         )}
