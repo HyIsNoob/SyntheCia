@@ -10,6 +10,7 @@ export type PlayMode = 'auto' | 'qwerty' | 'magic-keys';
 export type RenderQuality = 'ultra' | 'high' | 'performance';
 export type ParticleTheme = 'cosmic' | 'fire' | 'sakura' | 'frost';
 export type CustomVideoMode = 'backdrop' | 'overhead-hands';
+export type TranscriptionSensitivity = 'melodic' | 'balanced' | 'polyphonic';
 
 export interface MidiTrackInfo {
   trackIndex: number;
@@ -152,11 +153,14 @@ export interface VisualizerSettings {
   watermarkText: string;
   watermarkOpacity: number; // 0.1..1.0
 
-  // Audio
+  // Audio & Interactive Magic Keys
   audioMode: AudioMode;
   masterVolume: number; // 0..1.0
   reverbMix: number; // 0..1.0
   customAudioOffsetMs: number; // -2000..2000
+  magicSmoothness: number; // 0.2..1.0 adaptive rubato flow smoothness
+  magicChordWindowMs: number; // 25..110ms chord grouping window
+  transcriptionSensitivity: TranscriptionSensitivity;
 
   // Video & Clean Mode
   aspectRatio: AspectRatioMode;
@@ -213,8 +217,8 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   mirrorReflectionEnabled: true,
   mirrorReflectionIntensity: 0.52,
   sustainAuraEnabled: true,
-  electricArcsEnabled: true,
-  cameraPunchIntensity: 0.28,
+  electricArcsEnabled: false,
+  cameraPunchIntensity: 0,
 
   particlesEnabled: true,
   particleTheme: 'cosmic',
@@ -260,6 +264,9 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   masterVolume: 0.82,
   reverbMix: 0.36,
   customAudioOffsetMs: 0,
+  magicSmoothness: 0.82,
+  magicChordWindowMs: 55,
+  transcriptionSensitivity: 'balanced',
 
   aspectRatio: 'full',
   recordAutoStart: true,
@@ -298,8 +305,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       plasmaEdgeIntensity: 1.15,
       eqSpectrumEnabled: true,
       mirrorReflectionEnabled: true,
-      electricArcsEnabled: true,
-      cameraPunchIntensity: 0.28,
+      electricArcsEnabled: false,
+      cameraPunchIntensity: 0,
       particleTheme: 'cosmic',
       fluidSilkEnabled: true,
       sparksEnabled: true,

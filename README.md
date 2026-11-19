@@ -22,13 +22,15 @@
   - **Glacier Frost**: Rotating 6-point ice crystal snowflakes
 - **Concert Stage Visuals**:
   - **2D Classic** & **3D Perspective Highway** with multi-tempo measure bars & real-time chord detection (`Cmaj7`, `F#`, `B7`…)
-  - **Electric Chord Lightning Arcs** crackling dynamically between simultaneously struck keys + **Bass Camera Punch**
-  - **Live Audio EQ Spectrum**, **Glossy Piano Keybed Mirror Reflection**, **Anamorphic Horizontal Strike Flares**, **Plasma Edge Wave**, and **Sustain Pedal (CC64) Resonance Aura**
+  - **Smooth Liquid Plasma Edge** & optional **Harmonic Bezier Chord Arcs** + **Bass Camera Punch**
+  - **Live Audio EQ Spectrum**, **Glossy Piano Keybed Mirror Reflection**, **Anamorphic Horizontal Strike Flares**, and **Sustain Pedal (CC64) Resonance Aura**
+- **Audio → MIDI Auto-Transcriber (100% Client-Side)**:
+  - Drop or upload any normal song (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`) to automatically transcribe polyphonic falling piano notes right in the browser — synced with the original audio track and exportable as a standard `.mid` file!
 - **Custom Image & Video / Overhead Real-Hands Overlay (`.mp4 / .webm`)**:
   - Use looping videos or cached-blur images as backdrops, **OR** overlay your own **overhead piano footage of real hands** with Y-alignment, Zoom, Top Feather Mask, MIDI sync offset (`±3000ms`), and optional synthetic keyboard hide — Rousseau / SeeMusic Pro style right in the browser!
 - **Cinematic Title Intro Card & Channel Watermark**: Baked directly into the WebGL2 canvas so OBS & exported 60fps videos come ready for YouTube/TikTok.
 - **3 Interactive Performance Modes**:
-  - **Magic Keys ("Giả bấm")**: Load any MIDI song and tap **any** key on your keyboard — every tap performs the exact next MIDI chord with your own live rubato timing!
+  - **Magic Keys ("Giả bấm") with Adaptive Rubato Glide**: Load any MIDI (or transcribed audio) and tap **any** key on your keyboard — every tap performs the exact next chord with tempo-adaptive silky flow, configurable smoothness, and humanized chord micro-strum!
   - **QWERTY Live Piano**: Play 2+ octaves right on your computer keyboard (`Z–M` & `Q–P`, `[ / ]` octave shift, `Shift` sustain pedal).
   - **Web MIDI API (USB Piano)**: Plug in any real MIDI keyboard/digital piano for ultra-low-latency live performance & recording.
 - **Studio Audio & MIDI Track Manager**:
@@ -37,7 +39,7 @@
 - **Clean Video Mode & Direct 60fps Video Exporter**:
   - Press `V` for 100% zero-UI, cursor-hidden capture (OBS-ready) with `Full`, `16:9`, `9:16 TikTok/Shorts`, and `1:1` framing
   - Press `R` to record & download 60fps WebM/MP4 video with synced stereo audio directly from the WebGL2 canvas
-- **Open-Source Ready**: Bilingual **English / Tiếng Việt** UI, auto-saved local settings, **JSON Preset Export/Import**, optional FPS telemetry, and `O(log N)` binary-search note windowing for massive MIDI files.
+- **Open-Source Ready & Browser Persistence**: Bilingual **English / Tiếng Việt** UI, auto-saved settings (`localStorage`) + persistent custom backdrop & MIDI cache (`IndexedDB`), **JSON Preset Export/Import**, optional FPS telemetry, and `O(log N)` binary-search note windowing for massive MIDI files.
 
 ---
 

@@ -118,11 +118,14 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
   const liveSustainRef = useRef(false);
   const pointerDownKeyRef = useRef<number | null>(null);
 
-  // Magic Keys ("Giả bấm") state
+  // Magic Keys ("Giả bấm") state with Adaptive Rubato Glide!
   const magicStepsRef = useRef<MagicStep[]>([]);
   const magicStepIdxRef = useRef(0);
   const magicTargetTimeRef = useRef<number | null>(null);
   const magicHeldByKeyRef = useRef<Map<string, number[]>>(new Map());
+  const magicLastTapPerfRef = useRef<number>(0);
+  const magicLastStepTimeRef = useRef<number>(0);
+  const magicFlowRateRef = useRef<number>(1.0);
 
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onSongEndedRef = useRef(onSongEnded);
@@ -133,8 +136,14 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     midiRef.current = midi;
     playTimeRef.current = 0;
     nextNoteIdxRef.current = 0;
-    magicStepsRef.current = buildMagicSteps(midi, trackOverridesRef.current);
+    magicStepsRef.current = buildMagicSteps(
+      midi,
+      trackOverridesRef.current,
+      settingsRef.current.magicChordWindowMs
+    );
     magicStepIdxRef.current = 0;
+    magicLastTapPerfRef.current = 0;
+    magicFlowRateRef.current = 1.0;
     magicTargetTimeRef.current =
       playModeRef.current === 'magic-keys' && magicStepsRef.current.length > 0
         ? Math.max(0, magicStepsRef.current[0].time - 0.015)
@@ -149,11 +158,15 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
 
   useEffect(() => {
     trackOverridesRef.current = trackOverrides;
-    const steps = buildMagicSteps(midiRef.current, trackOverrides);
+    const steps = buildMagicSteps(
+      midiRef.current,
+      trackOverrides,
+      settings.magicChordWindowMs
+    );
     magicStepsRef.current = steps;
     magicStepIdxRef.current = findMagicStepIndexAtTime(steps, playTimeRef.current);
     onMagicProgressRef.current?.(magicStepIdxRef.current, steps.length);
-  }, [trackOverrides]);
+  }, [trackOverrides, settings.magicChordWindowMs]);
 
   useEffect(() => {
     playModeRef.current = playMode;
@@ -346,25 +359,52 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         if (magicStepIdxRef.current >= steps.length) {
           magicStepIdxRef.current = 0;
           playTimeRef.current = 0;
+          magicLastTapPerfRef.current = 0;
         }
 
         const step = steps[magicStepIdxRef.current];
+        const nowPerf = performance.now();
+
+        // Adaptive Rubato Tempo Estimator: learns your natural live tapping pace!
+        if (magicLastTapPerfRef.current > 0) {
+          const realDt = (nowPerf - magicLastTapPerfRef.current) / 1000;
+          const scoreDt = Math.max(0.05, step.time - magicLastStepTimeRef.current);
+          if (realDt > 0.04 && realDt < 2.2) {
+            const instantRate = Math.max(0.35, Math.min(2.2, scoreDt / realDt));
+            magicFlowRateRef.current = magicFlowRateRef.current * 0.65 + instantRate * 0.35;
+          }
+        }
+        magicLastTapPerfRef.current = nowPerf;
+        magicLastStepTimeRef.current = step.time;
+
         audioEngine.ensureInitialized();
 
+        // Humanized subtle micro-strum across multi-note chords (0..10ms) for concert-pianist warmth!
+        const sortedChord = [...step.notes].sort((a, b) => a.midi - b.midi);
         const playedMidis: number[] = [];
-        for (const n of step.notes) {
-          audioEngine.playNote(n.midi, n.velocity, Math.max(0.32, n.duration), step.sustained || liveSustainRef.current);
-          manualNotesRef.current.set(n.midi, n.velocity);
+        sortedChord.forEach((n, idx) => {
+          const strumMs = sortedChord.length > 1 ? Math.min(12, idx * 3.5) : 0;
+          const vel = Math.max(0.22, Math.min(1, n.velocity * (0.94 + Math.random() * 0.12)));
+          if (strumMs > 0) {
+            window.setTimeout(() => {
+              audioEngine.playNote(n.midi, vel, Math.max(0.45, n.duration * 1.15), true);
+            }, strumMs);
+          } else {
+            audioEngine.playNote(n.midi, vel, Math.max(0.45, n.duration * 1.15), true);
+          }
+          manualNotesRef.current.set(n.midi, vel);
           playedMidis.push(n.midi);
-        }
+        });
         magicHeldByKeyRef.current.set(keyCode, playedMidis);
 
-        // Snap hit time to this chord, then smoothly glide highway right up to the next chord!
-        playTimeRef.current = step.time;
+        // Smoothly pull highway forward (never harsh teleport backward!)
+        if (playTimeRef.current < step.time - 0.12) {
+          playTimeRef.current = step.time - 0.06;
+        }
         magicStepIdxRef.current++;
 
         if (magicStepIdxRef.current < steps.length) {
-          magicTargetTimeRef.current = Math.max(step.time, steps[magicStepIdxRef.current].time - 0.015);
+          magicTargetTimeRef.current = Math.max(step.time, steps[magicStepIdxRef.current].time - 0.014);
         } else {
           magicTargetTimeRef.current = midiRef.current?.duration ?? step.time + 1.0;
         }
@@ -453,13 +493,17 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
       const curSettings = settingsRef.current;
       const overrides = trackOverridesRef.current;
 
-      // 1. Advance playback time (Auto-play OR smooth Magic Keys highway glide)
+      // 1. Advance playback time (Auto-play OR Butter-Smooth Adaptive Rubato Magic Keys Glide)
       if (playModeRef.current === 'magic-keys') {
         if (magicTargetTimeRef.current !== null) {
           const diff = magicTargetTimeRef.current - playTimeRef.current;
-          if (Math.abs(diff) > 0.001) {
-            // Smoothly glide notes right down onto the strike bar waiting for your next tap!
-            playTimeRef.current += diff * Math.min(1, dt * 11.5);
+          if (diff > 0.0008) {
+            const smooth = curSettings.magicSmoothness ?? 0.82;
+            // Combine constant rubato flow velocity with gentle exponential cushion approaching next chord!
+            const flowStep = dt * magicFlowRateRef.current * (0.65 + (1 - smooth) * 0.75);
+            const springStep = diff * Math.min(1, dt * (3.8 + (1 - smooth) * 8.5));
+            const advance = Math.min(diff, Math.max(springStep, Math.min(diff * 0.65, flowStep)));
+            playTimeRef.current += advance;
             if (now - lastUiSync > 90) {
               lastUiSync = now;
               onTimeUpdateRef.current(playTimeRef.current);

@@ -10,6 +10,7 @@ import {
   TOTAL_KEYS,
   WHITE_KEY_COUNT,
 } from '../engine/PianoGeometry';
+import { exportParsedMidiToBlob, transcribeMonoPcmToMidi } from '../audio/AudioToMidi';
 import { DEMO_SONGS } from '../midi/DemoSongs';
 import { buildMagicSteps, findMagicStepIndexAtTime } from '../midi/MagicKeys';
 import { detectChordForNotes, findVisibleNoteRange, midiToNoteName, parseMidiBuffer } from '../midi/MidiParser';
@@ -225,5 +226,28 @@ describe('Performance Windowing, Magic Keys & QWERTY Piano', () => {
     expect(isMagicTriggerKey('Digit5')).toBe(true);
     expect(isMagicTriggerKey('Escape')).toBe(false);
     expect(isMagicTriggerKey('Space')).toBe(false);
+  });
+
+  it('transcribes synthetic mono PCM audio into accurate MIDI pitches and exports valid .mid binary', async () => {
+    const sr = 11025;
+    const durSec = 1.2;
+    const pcm = new Float32Array(Math.floor(sr * durSec));
+    // Generate A4 (440 Hz, MIDI 69) from 0.1s..0.55s and C5 (523.25 Hz, MIDI 72) from 0.65s..1.05s
+    for (let i = 0; i < pcm.length; i++) {
+      const t = i / sr;
+      if (t >= 0.1 && t <= 0.55) {
+        pcm[i] = Math.sin(2 * Math.PI * 440 * t) * 0.8;
+      } else if (t >= 0.65 && t <= 1.05) {
+        pcm[i] = Math.sin(2 * Math.PI * 523.251 * t) * 0.8;
+      }
+    }
+
+    const parsed = await transcribeMonoPcmToMidi(pcm, sr, 'synth-test.wav', { sensitivity: 'balanced' });
+    const detectedMidis = parsed.notes.map((n) => n.midi);
+    expect(detectedMidis).toContain(69); // A4
+    expect(detectedMidis).toContain(72); // C5
+
+    const midBlob = exportParsedMidiToBlob(parsed);
+    expect(midBlob.size).toBeGreaterThan(40);
   });
 });

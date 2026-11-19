@@ -1108,46 +1108,52 @@ export class SceneRenderer {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-    // Sleek, crisp plasma filament (colorful outer ribbon + fine bright filament — no milky glare!)
+    // Silky, liquid plasma ribbon using smooth quadratic midpoint interpolation (ZERO choppy jitter!)
+    const pxScale = Math.max(1, width / 1360);
+    const ptsX = new Float32Array(N);
+    const ptsY = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      const e = this.waveEnergy[i];
+      // Calm, organic low-frequency silk undulation instead of twitchy high-frequency chatter
+      const wave =
+        Math.sin(i * 0.22 + clockSec * 3.6) * 0.62 +
+        Math.cos(i * 0.44 - clockSec * 5.2) * 0.38;
+      const amp = (1.1 + audioEnergy.overall * 2.2 + e * 6.8) * intensity * pxScale;
+      ptsX[i] = (i / (N - 1)) * width;
+      ptsY[i] = hitLineY - Math.max(0, wave * 0.5 + 0.5) * amp - e * 2.4 * intensity * pxScale;
+    }
+
     const layers = [
-      { width: 4.0 * intensity, alpha: 0.34, whiteMix: 0.06, ampScale: 1.0 },
-      { width: 1.6 * Math.max(0.65, intensity * 0.78), alpha: 0.86, whiteMix: 0.42, ampScale: 0.7 },
+      { width: 4.2 * intensity * pxScale, alpha: 0.34, whiteMix: 0.08, yScale: 1.0 },
+      { width: 1.55 * Math.max(0.7, intensity * 0.8) * pxScale, alpha: 0.88, whiteMix: 0.45, yScale: 0.72 },
     ];
 
     for (const layer of layers) {
       ctx.lineWidth = layer.width;
       ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      const step = 2;
+      const step = 3;
       for (let i = 0; i < N - step; i += step) {
-        const x1 = (i / (N - 1)) * width;
-        const x2 = ((i + step) / (N - 1)) * width;
-        const e1 = this.waveEnergy[i];
-        const e2 = this.waveEnergy[i + step];
+        const iNext = Math.min(N - 1, i + step);
+        const iMid = Math.min(N - 1, i + Math.floor(step * 0.5));
+        const x1 = ptsX[i];
+        const y1 = hitLineY - (hitLineY - ptsY[i]) * layer.yScale;
+        const cx = ptsX[iMid];
+        const cy = hitLineY - (hitLineY - ptsY[iMid]) * layer.yScale;
+        const x2 = ptsX[iNext];
+        const y2 = hitLineY - (hitLineY - ptsY[iNext]) * layer.yScale;
+        const e1 = this.waveEnergy[iMid];
 
-        const ripple1 =
-          (Math.sin(i * 0.36 + clockSec * 9.5) * 0.55 + Math.cos(i * 0.74 - clockSec * 14.2) * 0.45) *
-          (1.6 + audioEnergy.overall * 3.4 + e1 * 9.5) *
-          intensity *
-          layer.ampScale;
-        const ripple2 =
-          (Math.sin((i + step) * 0.36 + clockSec * 9.5) * 0.55 +
-            Math.cos((i + step) * 0.74 - clockSec * 14.2) * 0.45) *
-          (1.6 + audioEnergy.overall * 3.4 + e2 * 9.5) *
-          intensity *
-          layer.ampScale;
+        const r = Math.min(255, Math.round(this.waveColorR[iMid] + (255 - this.waveColorR[iMid]) * (layer.whiteMix + e1 * 0.18)));
+        const g = Math.min(255, Math.round(this.waveColorG[iMid] + (255 - this.waveColorG[iMid]) * (layer.whiteMix + e1 * 0.18)));
+        const b = Math.min(255, Math.round(this.waveColorB[iMid] + (255 - this.waveColorB[iMid]) * (layer.whiteMix + e1 * 0.18)));
 
-        const y1 = hitLineY - Math.abs(ripple1) - e1 * 3.2 * intensity;
-        const y2 = hitLineY - Math.abs(ripple2) - e2 * 3.2 * intensity;
-
-        const r = Math.min(255, Math.round(this.waveColorR[i] + (255 - this.waveColorR[i]) * (layer.whiteMix + e1 * 0.2)));
-        const g = Math.min(255, Math.round(this.waveColorG[i] + (255 - this.waveColorG[i]) * (layer.whiteMix + e1 * 0.2)));
-        const b = Math.min(255, Math.round(this.waveColorB[i] + (255 - this.waveColorB[i]) * (layer.whiteMix + e1 * 0.2)));
-
-        ctx.strokeStyle = `rgba(${r},${g},${b},${Math.min(0.95, layer.alpha + e1 * 0.28).toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${r},${g},${b},${Math.min(0.95, layer.alpha + e1 * 0.24).toFixed(3)})`;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        ctx.quadraticCurveTo(cx, cy, x2, y2);
         ctx.stroke();
       }
     }
@@ -1549,8 +1555,7 @@ export class SceneRenderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Connect adjacent simultaneously active keys within ~1.3 octaves (16 semitones)
-    const timeTick = Math.floor(clockSec * 28); // crisp 28Hz crackling lightning flicker
+    // Connect adjacent simultaneously active keys with silky smooth harmonic Bezier energy arcs (ZERO jitter!)
     for (let i = 0; i < active.length - 1; i++) {
       const a = active[i];
       const b = active[i + 1];
@@ -1558,35 +1563,28 @@ export class SceneRenderer {
       if (span < 2 || span > 16) continue;
 
       const dist = b.x - a.x;
-      const segs = Math.max(6, Math.min(16, Math.floor(dist / (18 * pxScale))));
-      const amp = Math.min(26 * pxScale, (8 + dist * 0.08) * Math.min(a.intensity, b.intensity));
-      const pts: Array<{ x: number; y: number }> = [];
-
-      for (let s = 0; s <= segs; s++) {
-        const t = s / segs;
-        const x = a.x + dist * t;
-        const arch = Math.sin(t * Math.PI);
-        const seed = Math.sin((timeTick * 17.3 + i * 31.7 + s * 13.1)) * 43758.5453;
-        const jitter = (seed - Math.floor(seed) - 0.5) * 2;
-        const y = hitLineY - arch * amp * (0.6 + Math.abs(jitter) * 0.7) - jitter * amp * 0.45 * arch;
-        pts.push({ x, y });
-      }
+      const alpha = Math.min(1, (a.intensity + b.intensity) * 0.45);
+      const archH = Math.min(34 * pxScale, (12 + dist * 0.14) * alpha);
+      const sway = Math.sin(clockSec * 4.2 + i * 1.7) * 5 * pxScale;
+      const midX = (a.x + b.x) * 0.5 + sway;
+      const midY = hitLineY - archH;
 
       const boltGrad = ctx.createLinearGradient(a.x, hitLineY, b.x, hitLineY);
-      const alpha = Math.min(1, (a.intensity + b.intensity) * 0.5);
-      boltGrad.addColorStop(0, rgbToCss(a.color, 0.85 * alpha));
-      boltGrad.addColorStop(1, rgbToCss(b.color, 0.85 * alpha));
+      boltGrad.addColorStop(0, rgbToCss(a.color, 0.72 * alpha));
+      boltGrad.addColorStop(0.5, rgbToCss(lightenRgb(a.color, 0.45), 0.85 * alpha));
+      boltGrad.addColorStop(1, rgbToCss(b.color, 0.72 * alpha));
 
-      // Outer colored electric sheath
+      // Smooth outer glowing energy ribbon
       ctx.strokeStyle = boltGrad;
-      ctx.lineWidth = 3.2 * pxScale;
+      ctx.lineWidth = 3.0 * pxScale;
       ctx.beginPath();
-      pts.forEach((p, idx) => (idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.moveTo(a.x, hitLineY - 1 * pxScale);
+      ctx.quadraticCurveTo(midX, midY, b.x, hitLineY - 1 * pxScale);
       ctx.stroke();
 
-      // Razor white-hot plasma bolt core
-      ctx.strokeStyle = `rgba(255, 255, 255, ${(0.92 * alpha).toFixed(3)})`;
-      ctx.lineWidth = 1.15 * pxScale;
+      // Delicate silky inner filament
+      ctx.strokeStyle = `rgba(255, 255, 255, ${(0.72 * alpha).toFixed(3)})`;
+      ctx.lineWidth = 1.05 * pxScale;
       ctx.stroke();
     }
 

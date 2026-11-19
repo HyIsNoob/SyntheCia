@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioEngine, type SampleLoadState } from './audio/AudioEngine';
+import { exportParsedMidiToBlob, transcribeAudioFileToMidi } from './audio/AudioToMidi';
 import { getTranslations } from './i18n/translations';
 import { DEMO_SONGS } from './midi/DemoSongs';
 import { parseMidiBuffer } from './midi/MidiParser';
 import { isMagicTriggerKey, qwertyCodeToMidi } from './midi/QwertyPiano';
 import { WebMidiController, type MidiDeviceInfo } from './midi/WebMidiInput';
+import {
+  clearAllStoredState,
+  deleteMediaBlob,
+  loadMediaBlob,
+  loadPersistedMeta,
+  loadPersistedSettings,
+  saveMediaBlob,
+  savePersistedMeta,
+  savePersistedSettings,
+} from './storage/SettingsStorage';
 import {
   DEFAULT_SETTINGS,
   VISUAL_PRESETS,
@@ -24,36 +35,14 @@ import {
 } from './ui/VisualizerStage';
 import { downloadRecording, VideoExporter } from './video/VideoExporter';
 
-const STORAGE_KEY = 'synthecia.studio.v2.1.settings';
-
-function loadSavedSettings(): VisualizerSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<VisualizerSettings>;
-    return {
-      ...DEFAULT_SETTINGS,
-      ...parsed,
-      // Blob object URLs don't survive page reloads
-      customBgUrl: null,
-      customVideoUrl: null,
-      backgroundPreset:
-        parsed.backgroundPreset === 'custom' || parsed.backgroundPreset === 'video'
-          ? DEFAULT_SETTINGS.backgroundPreset
-          : (parsed.backgroundPreset ?? DEFAULT_SETTINGS.backgroundPreset),
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
 export const App: React.FC = () => {
   const audioEngine = useMemo(() => new AudioEngine(), []);
   const exporter = useMemo(() => new VideoExporter(), []);
   const stageRef = useRef<VisualizerStageHandle | null>(null);
+  const initialMeta = useMemo(() => loadPersistedMeta(), []);
 
-  const [settings, setSettings] = useState<VisualizerSettings>(loadSavedSettings);
-  const [activePresetId, setActivePresetId] = useState<string | null>('rainbow-neon-3d');
+  const [settings, setSettings] = useState<VisualizerSettings>(loadPersistedSettings);
+  const [activePresetId, setActivePresetId] = useState<string | null>(initialMeta.activePresetId);
   const [activeDemoId, setActiveDemoId] = useState<string | null>(DEMO_SONGS[0].id);
   const [midi, setMidi] = useState<ParsedMidi | null>(() => DEMO_SONGS[0].build());
   const [trackOverrides, setTrackOverrides] = useState<Record<number, TrackOverride>>({});
@@ -62,10 +51,11 @@ export const App: React.FC = () => {
   const [playMode, setPlayMode] = useState<PlayMode>('auto');
   const [qwertyOctaveShift, setQwertyOctaveShift] = useState(0);
   const [magicProgress, setMagicProgress] = useState({ stepIndex: 0, totalSteps: 0 });
+  const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(initialMeta.playbackSpeed);
+  const [loopEnabled, setLoopEnabled] = useState(initialMeta.loopEnabled);
   const [loopA, setLoopA] = useState<number | null>(null);
   const [loopB, setLoopB] = useState<number | null>(null);
 
@@ -104,15 +94,51 @@ export const App: React.FC = () => {
     toastTimerRef.current = window.setTimeout(() => setToastMsg(null), durationMs);
   }, []);
 
-  // Auto-save settings to localStorage (excluding transient customBgUrl & customVideoUrl blobs)
+  // Auto-save settings & app meta to browser localStorage
   useEffect(() => {
-    try {
-      const toSave = { ...settings, customBgUrl: null, customVideoUrl: null };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-    } catch {
-      // ignore storage quota errors
-    }
+    savePersistedSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    savePersistedMeta({
+      activePresetId,
+      playbackSpeed,
+      loopEnabled,
+      customMidiName: activeDemoId === null ? midi?.name ?? null : null,
+    });
+  }, [activePresetId, playbackSpeed, loopEnabled, activeDemoId, midi?.name]);
+
+  // Hydrate persisted Custom Background Image & Last Custom MIDI from IndexedDB on startup!
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const savedBg = await loadMediaBlob('customBg');
+      if (!cancelled && savedBg) {
+        const bgUrl = URL.createObjectURL(savedBg);
+        setSettings((prev) => ({
+          ...prev,
+          customBgUrl: bgUrl,
+        }));
+      }
+      const savedMidi = await loadMediaBlob('customMidi');
+      if (!cancelled && savedMidi) {
+        try {
+          const buf = await savedMidi.arrayBuffer();
+          const meta = loadPersistedMeta();
+          const parsed = parseMidiBuffer(buf, meta.customMidiName || 'Saved Song.mid');
+          if (parsed.notes.length > 0) {
+            setActiveDemoId(null);
+            setMidi(parsed);
+          }
+        } catch {
+          // ignore corrupted cached midi
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Wire audio engine & Web MIDI controller
   useEffect(() => {
@@ -255,13 +281,117 @@ export const App: React.FC = () => {
       setLoopB(null);
       setMidi(demo.build());
       setCurrentTime(0);
+      void deleteMediaBlob('customMidi');
       showToast(`${demo.title} (${demo.bpm} BPM)`);
     },
     [audioEngine, showToast]
   );
 
+  const handleTranscribeAudio = useCallback(
+    async (file: File) => {
+      try {
+        audioEngine.stopAllNotes();
+        setIsPlaying(false);
+        setTranscribeProgress(2);
+        showToast(
+          settings.language === 'en'
+            ? `Analyzing "${file.name}" into 88-key MIDI...`
+            : `Đang phân tích "${file.name}" thành nốt MIDI...`,
+          4000
+        );
+
+        const parsed = await transcribeAudioFileToMidi(file, {
+          sensitivity: settings.transcriptionSensitivity,
+          onProgress: (pct) => setTranscribeProgress(pct),
+        });
+
+        setTranscribeProgress(null);
+        if (parsed.notes.length === 0) {
+          showToast(
+            settings.language === 'en'
+              ? 'No pitched notes detected — try "Dense" sensitivity.'
+              : 'Không phát hiện đủ nốt nhạc — hãy thử mức nhạy "Dày hợp âm".',
+            4000
+          );
+          return;
+        }
+
+        // Load original song into AudioEngine synced to generated MIDI so it sounds identical!
+        await audioEngine.loadCustomAudioFile(file);
+        setCustomAudioName(file.name);
+        setSettings((prev) => ({ ...prev, audioMode: 'custom-audio', customAudioOffsetMs: 0 }));
+
+        setActiveDemoId(null);
+        setTrackOverrides({});
+        setLoopA(null);
+        setLoopB(null);
+        setMidi(parsed);
+        setCurrentTime(0);
+
+        // Persist transcribed MIDI to IndexedDB so refresh keeps it!
+        void saveMediaBlob('customMidi', exportParsedMidiToBlob(parsed));
+
+        showToast(
+          settings.language === 'en'
+            ? `Generated ${parsed.notes.length} notes (~${parsed.bpm} BPM) synced with "${file.name}"!`
+            : `Đã tạo ${parsed.notes.length} nốt MIDI (~${parsed.bpm} BPM) khớp với "${file.name}"!`,
+          4500
+        );
+      } catch {
+        setTranscribeProgress(null);
+        showToast(
+          settings.language === 'en'
+            ? 'Could not transcribe this audio file.'
+            : 'Không thể giải mã hoặc chuyển file âm thanh này sang MIDI.',
+          3800
+        );
+      }
+    },
+    [audioEngine, settings.language, settings.transcriptionSensitivity, showToast]
+  );
+
+  const handleExportCurrentMidi = useCallback(() => {
+    if (!midi) return;
+    const blob = exportParsedMidiToBlob(midi);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${midi.name.replace(/[^a-z0-9-_]+/gi, '_') || 'synthecia'}.mid`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast(settings.language === 'en' ? 'Exported .mid file!' : 'Đã tải file .mid về máy!');
+  }, [midi, settings.language, showToast]);
+
+  const handleClearBrowserStorage = useCallback(async () => {
+    await clearAllStoredState();
+    setSettings((prev) => {
+      if (prev.customBgUrl) URL.revokeObjectURL(prev.customBgUrl);
+      if (prev.customVideoUrl) URL.revokeObjectURL(prev.customVideoUrl);
+      return { ...DEFAULT_SETTINGS, language: prev.language };
+    });
+    setActivePresetId('rainbow-neon-3d');
+    setActiveDemoId(DEMO_SONGS[0].id);
+    setMidi(DEMO_SONGS[0].build());
+    showToast(
+      settings.language === 'en'
+        ? 'Cleared saved browser settings & cached media!'
+        : 'Đã xóa toàn bộ cài đặt & ảnh/MIDI lưu trong trình duyệt!'
+    );
+  }, [settings.language, showToast]);
+
   const handleUploadMidi = useCallback(
     async (file: File) => {
+      const lower = file.name.toLowerCase();
+      // If user picks an MP3/WAV via the Open MIDI button, automatically run Audio -> MIDI!
+      if (
+        !lower.endsWith('.mid') &&
+        !lower.endsWith('.midi') &&
+        (file.type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a)$/i.test(lower))
+      ) {
+        await handleTranscribeAudio(file);
+        return;
+      }
+
       try {
         const buffer = await file.arrayBuffer();
         const parsed = parseMidiBuffer(buffer, file.name);
@@ -282,6 +412,7 @@ export const App: React.FC = () => {
         setLoopB(null);
         setMidi(parsed);
         setCurrentTime(0);
+        void saveMediaBlob('customMidi', file);
         showToast(`${parsed.name} (${parsed.notes.length} ${t.notesUnit} • ${parsed.bpm} BPM)`);
       } catch {
         showToast(
@@ -292,7 +423,7 @@ export const App: React.FC = () => {
         );
       }
     },
-    [audioEngine, settings.language, showToast, t.notesUnit]
+    [audioEngine, handleTranscribeAudio, settings.language, showToast, t.notesUnit]
   );
 
   const handleUpdateTrackOverride = useCallback((trackIndex: number, patch: Partial<TrackOverride>) => {
@@ -348,6 +479,7 @@ export const App: React.FC = () => {
   const handleUploadBackground = useCallback(
     (file: File) => {
       const url = URL.createObjectURL(file);
+      void saveMediaBlob('customBg', file);
       setSettings((prev) => {
         if (prev.customBgUrl) URL.revokeObjectURL(prev.customBgUrl);
         return {
@@ -357,12 +489,13 @@ export const App: React.FC = () => {
           bgOpacity: Math.max(prev.bgOpacity, 0.72),
         };
       });
-      showToast(`${settings.language === 'en' ? 'Backdrop' : 'Ảnh nền'}: ${file.name}`);
+      showToast(`${settings.language === 'en' ? 'Backdrop saved' : 'Đã lưu ảnh nền'}: ${file.name}`);
     },
     [settings.language, showToast]
   );
 
   const handleClearBackground = useCallback(() => {
+    void deleteMediaBlob('customBg');
     setSettings((prev) => {
       if (prev.customBgUrl) URL.revokeObjectURL(prev.customBgUrl);
       return { ...prev, backgroundPreset: 'nebula', customBgUrl: null };
@@ -692,8 +825,9 @@ export const App: React.FC = () => {
       handleUploadBackground(file);
     } else if (file.type.startsWith('video/') || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) {
       handleUploadVideo(file);
-    } else if (file.type.startsWith('audio/')) {
-      void handleUploadCustomAudio(file);
+    } else if (file.type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a)$/i.test(lower)) {
+      // Dropping a normal audio song auto-transcribes it into synced MIDI falling notes!
+      void handleTranscribeAudio(file);
     } else {
       showToast(t.dropOverlayDesc, 3500);
     }
@@ -840,11 +974,15 @@ export const App: React.FC = () => {
             usbMidiConnected={usbMidiConnected}
             usbMidiDevices={usbMidiDevices}
             isRecording={isRecording}
+            transcribeProgress={transcribeProgress}
             onClose={() => setInspectorOpen(false)}
             onUpdateSettings={updateSettings}
             onApplyPreset={applyPreset}
             onExportPresetJson={handleExportPresetJson}
             onImportPresetJson={(f) => void handleImportPresetJson(f)}
+            onClearBrowserStorage={() => void handleClearBrowserStorage()}
+            onTranscribeAudio={(f) => void handleTranscribeAudio(f)}
+            onExportCurrentMidi={handleExportCurrentMidi}
             onUpdateTrackOverride={handleUpdateTrackOverride}
             onResetTrackOverrides={() => setTrackOverrides({})}
             onChangePlayMode={handleChangePlayMode}
@@ -883,6 +1021,24 @@ export const App: React.FC = () => {
               {t.dropOverlayTitle}
             </div>
             <p className="text-xs text-slate-300 mt-2 leading-relaxed">{t.dropOverlayDesc}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Audio -> MIDI Auto-Transcription Live Progress Pill */}
+      {transcribeProgress !== null && !cleanMode && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-2xl bg-slate-950/92 backdrop-blur-xl border border-violet-400/50 shadow-[0_12px_40px_rgba(139,92,246,0.4)] flex items-center gap-3">
+          <div className="w-3.5 h-3.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+          <div className="text-xs font-semibold text-white">
+            {settings.language === 'en'
+              ? `Transcribing Audio → MIDI... ${transcribeProgress}%`
+              : `Đang phân tích Nhạc → MIDI... ${transcribeProgress}%`}
+          </div>
+          <div className="w-24 h-1.5 rounded-full bg-white/15 overflow-hidden">
+            <div
+              style={{ width: `${transcribeProgress}%` }}
+              className="h-full bg-gradient-to-r from-violet-400 to-fuchsia-400 transition-all duration-150"
+            />
           </div>
         </div>
       )}

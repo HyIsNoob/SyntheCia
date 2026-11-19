@@ -38,6 +38,7 @@ import {
   type ParticleTheme,
   type PlayMode,
   type TrackOverride,
+  type TranscriptionSensitivity,
   type VisualizerSettings,
 } from '../types/visualizer';
 
@@ -59,11 +60,15 @@ interface InspectorDrawerProps {
   usbMidiConnected: boolean;
   usbMidiDevices: MidiDeviceInfo[];
   isRecording: boolean;
+  transcribeProgress: number | null;
   onClose: () => void;
   onUpdateSettings: (patch: Partial<VisualizerSettings>) => void;
   onApplyPreset: (presetId: string) => void;
   onExportPresetJson: () => void;
   onImportPresetJson: (file: File) => void;
+  onClearBrowserStorage: () => void;
+  onTranscribeAudio: (file: File) => void;
+  onExportCurrentMidi: () => void;
   onUpdateTrackOverride: (trackIndex: number, patch: Partial<TrackOverride>) => void;
   onResetTrackOverrides: () => void;
   onChangePlayMode: (mode: PlayMode) => void;
@@ -157,11 +162,15 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   usbMidiConnected,
   usbMidiDevices,
   isRecording,
+  transcribeProgress,
   onClose,
   onUpdateSettings,
   onApplyPreset,
   onExportPresetJson,
   onImportPresetJson,
+  onClearBrowserStorage,
+  onTranscribeAudio,
+  onExportCurrentMidi,
   onUpdateTrackOverride,
   onResetTrackOverrides,
   onChangePlayMode,
@@ -181,6 +190,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   const bgInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const transcribeInputRef = useRef<HTMLInputElement | null>(null);
   const presetInputRef = useRef<HTMLInputElement | null>(null);
   const t = getTranslations(settings.language);
   const isEn = settings.language === 'en';
@@ -1193,6 +1203,29 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               </button>
             </div>
 
+            {playMode === 'magic-keys' && (
+              <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-400/25 space-y-2.5">
+                <SliderRow
+                  label={isEn ? 'Rubato Flow Smoothness' : 'Độ mượt trôi nốt (Rubato)'}
+                  valueText={`${Math.round(settings.magicSmoothness * 100)}%`}
+                  value={settings.magicSmoothness}
+                  min={0.2}
+                  max={1.0}
+                  step={0.04}
+                  onChange={(v) => onUpdateSettings({ magicSmoothness: v })}
+                />
+                <SliderRow
+                  label={isEn ? 'Chord Group Window' : 'Ngưỡng gom hợp âm'}
+                  valueText={`${settings.magicChordWindowMs} ms`}
+                  value={settings.magicChordWindowMs}
+                  min={25}
+                  max={110}
+                  step={5}
+                  onChange={(v) => onUpdateSettings({ magicChordWindowMs: v })}
+                />
+              </div>
+            )}
+
             {playMode === 'qwerty' && (
               <div className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-400/25 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
@@ -1225,6 +1258,76 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 </div>
               </div>
             )}
+
+            <SectionTitle>{isEn ? 'Audio → MIDI Auto-Transcriber (MP3 / WAV)' : 'Tự tạo MIDI từ nhạc thường (MP3 / WAV)'}</SectionTitle>
+            <input
+              ref={transcribeInputRef}
+              type="file"
+              accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onTranscribeAudio(file);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <div className="p-2.5 rounded-xl bg-violet-950/30 border border-violet-400/25 space-y-2.5">
+              <p className="text-[10px] text-slate-300 leading-relaxed">
+                {isEn
+                  ? 'Drop or pick any .mp3 / .wav song to auto-generate playable 88-key falling MIDI notes right in your browser (synced with original audio!).'
+                  : 'Chọn hoặc kéo-thả bài nhạc .mp3 / .wav bất kỳ để trình duyệt tự phân tích cao độ 88 phím và tạo nốt MIDI rơi khớp nhịp nhạc gốc!'}
+              </p>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { id: 'melodic', label: isEn ? 'Clean' : 'Gọn giai điệu' },
+                    { id: 'balanced', label: isEn ? 'Balanced' : 'Cân bằng' },
+                    { id: 'polyphonic', label: isEn ? 'Dense' : 'Dày hợp âm' },
+                  ] as Array<{ id: TranscriptionSensitivity; label: string }>
+                ).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ transcriptionSensitivity: s.id })}
+                    className={`py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                      settings.transcriptionSensitivity === s.id
+                        ? 'bg-violet-500/30 border-violet-400/60 text-white'
+                        : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  disabled={transcribeProgress !== null}
+                  onClick={() => transcribeInputRef.current?.click()}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>
+                    {transcribeProgress !== null
+                      ? `${transcribeProgress}%`
+                      : isEn
+                        ? 'Audio → MIDI'
+                        : 'Tạo MIDI từ MP3'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!midi}
+                  onClick={onExportCurrentMidi}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-white/10 hover:bg-white/16 text-slate-100 text-[11px] font-semibold transition cursor-pointer disabled:opacity-40"
+                >
+                  <Download className="w-3.5 h-3.5 text-cyan-300" />
+                  <span>{isEn ? 'Export .mid' : 'Tải file .mid'}</span>
+                </button>
+              </div>
+            </div>
 
             <SectionTitle>USB MIDI Keyboard (Web MIDI)</SectionTitle>
             <button
@@ -1520,7 +1623,12 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ showPerfStats: v })}
             />
 
-            <SectionTitle>{isEn ? 'Preset Backup & Sharing' : 'Sao lưu & Chia sẻ Preset'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Browser Persistence & Presets' : 'Lưu trữ Trình duyệt & Preset'}</SectionTitle>
+            <p className="text-[10px] text-emerald-300/90 leading-relaxed">
+              {isEn
+                ? '✓ All settings, custom backdrop images & last MIDI file auto-save locally in your browser (localStorage + IndexedDB).'
+                : '✓ Toàn bộ cài đặt, ảnh nền custom & bài MIDI gần nhất tự động lưu trong trình duyệt (localStorage + IndexedDB).'}
+            </p>
             <input
               ref={presetInputRef}
               type="file"
@@ -1552,20 +1660,30 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 <span>{t.importPreset}</span>
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                onUpdateSettings({
-                  ...DEFAULT_SETTINGS,
-                  language: settings.language,
-                  customBgUrl: settings.customBgUrl,
-                })
-              }
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-500/12 hover:bg-rose-500/22 border border-rose-400/25 text-rose-200 text-xs font-semibold transition cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>{t.resetDefaults}</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateSettings({
+                    ...DEFAULT_SETTINGS,
+                    language: settings.language,
+                    customBgUrl: settings.customBgUrl,
+                  })
+                }
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-slate-200 text-[11px] font-semibold transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{t.resetDefaults}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClearBrowserStorage}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-rose-500/12 hover:bg-rose-500/22 border border-rose-400/25 text-rose-200 text-[11px] font-semibold transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Clear Cache' : 'Xóa bộ nhớ'}</span>
+              </button>
+            </div>
 
             <SectionTitle>{isEn ? 'Keyboard Shortcuts' : 'Phím tắt nhanh'}</SectionTitle>
             <div className="rounded-xl bg-white/[0.03] border border-white/10 divide-y divide-white/8 text-[11px]">

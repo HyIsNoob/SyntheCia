@@ -7,8 +7,6 @@ export interface MagicStep {
   sustained: boolean;
 }
 
-const CHORD_GROUP_WINDOW_SEC = 0.038; // 38ms grouping threshold for simultaneous chord hits
-
 function isSustainAt(midi: ParsedMidi, timeSec: number): boolean {
   for (let i = 0; i < midi.sustainIntervals.length; i++) {
     const s = midi.sustainIntervals[i];
@@ -24,10 +22,12 @@ function isSustainAt(midi: ParsedMidi, timeSec: number): boolean {
  */
 export function buildMagicSteps(
   midi: ParsedMidi | null,
-  trackOverrides?: Readonly<Record<number, TrackOverride>>
+  trackOverrides?: Readonly<Record<number, TrackOverride>>,
+  chordWindowMs = 55
 ): MagicStep[] {
   if (!midi || midi.notes.length === 0) return [];
 
+  const groupWindowSec = Math.max(0.02, Math.min(0.14, chordWindowMs / 1000));
   const steps: MagicStep[] = [];
   let currentNotes: MidiNoteEvent[] = [];
   let groupStart = -1;
@@ -40,7 +40,7 @@ export function buildMagicSteps(
     if (currentNotes.length === 0) {
       currentNotes = [n];
       groupStart = n.start;
-    } else if (n.start - groupStart <= CHORD_GROUP_WINDOW_SEC) {
+    } else if (n.start - groupStart <= groupWindowSec) {
       currentNotes.push(n);
     } else {
       steps.push({

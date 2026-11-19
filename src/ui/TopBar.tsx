@@ -110,11 +110,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
         </div>
 
-        {/* Open MIDI button */}
+        {/* Open MIDI or Audio (.mp3/.wav -> Auto MIDI!) button */}
         <input
           ref={fileInputRef}
           type="file"
-          accept=".mid,.midi,audio/midi,audio/x-midi"
+          accept=".mid,.midi,audio/midi,audio/x-midi,audio/*,.mp3,.wav,.ogg,.flac,.m4a"
           className="hidden"
           onChange={handleFileChange}
         />
@@ -122,7 +122,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600/90 hover:bg-violet-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 shadow-[0_0_20px_rgba(124,58,237,0.45)] transition cursor-pointer"
-          title={t.openMidi}
+          title={
+            settings.language === 'en'
+              ? 'Open MIDI (.mid) or Audio (.mp3/.wav -> Auto-Transcribe to MIDI!)'
+              : 'Mở file MIDI (.mid) hoặc file nhạc (.mp3/.wav tự chuyển thành MIDI!)'
+          }
         >
           <Upload className="w-3.5 h-3.5" />
           <span>{t.openMidi}</span>
