@@ -79,10 +79,14 @@ SyntheCia Studio uses a **Hybrid Canvas 2D Scene + WebGL2 GPU Post-Processing** 
 
 ---
 
-## Deploying to GitHub Pages
+## Deploying to Vercel
 
-A ready-to-use workflow is included at [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
-Just push to `main` and enable **Settings → Pages → Source: GitHub Actions** in your repository to publish a live public demo automatically!
+SyntheCia Studio is pre-configured for zero-config deployment via [`vercel.json`](vercel.json):
+
+1. Import your GitHub repository on [vercel.com/new](https://vercel.com/new), or deploy from your terminal with `vercel`.
+2. Vercel auto-detects **Vite** (`npm run build` → `dist`) and publishes your live HTTPS visualizer in seconds.
+
+A GitHub Actions CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) automatically runs `npm test` and `npm run build` on every push and pull request.
 
 ---
 
