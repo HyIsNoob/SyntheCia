@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Vercel local link metadata
+.vercel/
+
 # Build output
 dist/
 dist-ssr/
