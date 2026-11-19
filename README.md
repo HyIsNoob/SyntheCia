@@ -4,6 +4,7 @@
 
 ![SyntheCia Studio Preview](docs/preview-v2.png)
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-synthecia--studio.vercel.app-8b5cf6?logo=vercel)](https://synthecia-studio.vercel.app)
 [![MIT License](https://img.shields.io/badge/License-MIT-violet.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![WebGL2](https://img.shields.io/badge/Renderer-WebGL2%20HDR-fuchsia.svg)](#architecture)
