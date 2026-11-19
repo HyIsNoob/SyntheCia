@@ -467,6 +467,7 @@ export class SceneRenderer {
   ): void {
     const is3D = settings.viewMode === '3d';
     const layout = getPianoLayout();
+    const pxScale = Math.max(1, width / 1360);
 
     ctx.save();
 
@@ -487,7 +488,7 @@ export class SceneRenderer {
       lineGrad.addColorStop(1, 'rgba(148, 163, 184, 0)');
 
       ctx.strokeStyle = lineGrad;
-      ctx.lineWidth = isEdge ? 1.3 : 0.9;
+      ctx.lineWidth = (isEdge ? 1.45 : 1.05) * pxScale;
       ctx.beginPath();
       ctx.moveTo(p0.x, p0.y);
       ctx.lineTo(p1.x, p1.y);
@@ -595,6 +596,8 @@ export class SceneRenderer {
     const is3D = settings.viewMode === '3d';
     const glowAmt = settings.noteGlowIntensity;
     const notes = midi.notes;
+    // Scale line widths & corner radii consistently with SSAA supersampled buffer resolution!
+    const pxScale = Math.max(1, width / 1360);
 
     // O(log N + visible) binary-search windowing for 60fps even on 50,000-note Black MIDI!
     const [startIdx, endIdx] = findVisibleNoteRange(
@@ -603,6 +606,9 @@ export class SceneRenderer {
       currentTime + lookahead,
       midi.maxNoteDuration
     );
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
 
     // Render white-key notes first, then black-key notes slightly on top
     for (let pass = 0; pass < 2; pass++) {
@@ -625,7 +631,6 @@ export class SceneRenderer {
 
         const isHitting = currentTime >= n.start && currentTime <= n.end;
         const baseColor = resolveNoteColor(n, settings, trackOverrides);
-        // Slightly richer saturation contrast on black-key notes for instant chord separation
         const color = renderBlack ? darkenRgb(baseColor, 0.08) : baseColor;
         const brightColor = lightenRgb(baseColor, isHitting ? 0.42 * glowAmt : 0.26 * glowAmt);
 
@@ -644,43 +649,60 @@ export class SceneRenderer {
 
         // Enforce minimum readable vertical pixel height while preserving gap
         const rawBoxH = bl.y - tl.y;
-        const minH = Math.max(6, 9 * bl.scale);
+        const minH = Math.max(6 * pxScale, 9 * bl.scale * pxScale);
         if (rawBoxH < minH) {
           tl.y = bl.y - minH;
           tr.y = br.y - minH;
         }
         const boxH = Math.max(minH, bl.y - tl.y);
-        const botW = Math.max(3.5, br.x - bl.x);
-        const topW = Math.max(2, tr.x - tl.x);
-        const fadeFar = Math.min(1, Math.max(0.22, (1.06 - tBottom) * 1.45));
+        const botW = Math.max(4 * pxScale, br.x - bl.x);
+        const topW = Math.max(2.5 * pxScale, tr.x - tl.x);
+        const fadeFar = Math.min(1, Math.max(0.24, (1.06 - tBottom) * 1.45));
 
         if (settings.noteStyle === 'crystal') {
           this.drawCrystalNote(ctx, bl, br, tl, tr, botW, boxH, color, brightColor, isHitting, glowAmt, fadeFar);
         } else if (settings.noteStyle === 'neon-hollow') {
-          this.drawNeonHollowNote(ctx, bl, br, tl, tr, botW, boxH, color, brightColor, isHitting, glowAmt, fadeFar);
+          this.drawNeonHollowNote(
+            ctx,
+            bl,
+            br,
+            tl,
+            tr,
+            botW,
+            boxH,
+            color,
+            brightColor,
+            isHitting,
+            glowAmt,
+            pxScale,
+            fadeFar
+          );
         } else if (settings.noteStyle === 'plasma-beam') {
           this.drawPlasmaBeamNote(ctx, bl, br, tl, tr, botW, topW, color, brightColor, isHitting, glowAmt, fadeFar);
         } else {
           this.drawGlassBarNote(ctx, bl, br, tl, tr, botW, boxH, color, brightColor, isHitting, glowAmt, is3D, fadeFar);
         }
 
-        // Ultra-crisp Note Name Label (with dark contrast halo so bloom NEVER blurs the text!)
-        if (settings.showNoteLabels && boxH > 14 && botW > 8) {
+        // Crisp HiDPI vector pitch label (smooth drop shadow instead of crunchy jagged strokeText!)
+        if (settings.showNoteLabels && boxH > 14 * pxScale && botW > 9 * pxScale) {
           const cx = (bl.x + br.x) * 0.5;
-          const fontSize = Math.max(9, Math.min(15, Math.floor(botW * 0.68)));
-          const labelY = bl.y - Math.max(3, 4 * bl.scale);
+          const fontSize = Math.max(
+            Math.round(9 * pxScale),
+            Math.min(Math.round(15 * pxScale), Math.round(botW * 0.64))
+          );
+          const labelY = bl.y - Math.max(3 * pxScale, 4.2 * bl.scale * pxScale);
           ctx.save();
-          ctx.font = `700 ${fontSize}px "Space Grotesk", "Inter", sans-serif`;
+          ctx.font = `700 ${fontSize}px "Inter", "Space Grotesk", sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.lineJoin = 'round';
-          ctx.lineWidth = Math.max(2.4, fontSize * 0.24);
-          ctx.strokeStyle = `rgba(3, 5, 10, ${(0.92 * fadeFar).toFixed(2)})`;
-          ctx.strokeText(n.pitchClass, cx, labelY);
+          ctx.shadowColor = `rgba(2, 4, 10, ${(0.95 * fadeFar).toFixed(2)})`;
+          ctx.shadowBlur = 4 * pxScale;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 1 * pxScale;
           ctx.fillStyle =
             settings.noteStyle === 'neon-hollow'
-              ? rgbToCss(lightenRgb(baseColor, 0.72), 0.98 * fadeFar)
-              : `rgba(255, 255, 255, ${(0.96 * fadeFar).toFixed(2)})`;
+              ? rgbToCss(lightenRgb(baseColor, 0.78), 0.98 * fadeFar)
+              : `rgba(255, 255, 255, ${(0.97 * fadeFar).toFixed(2)})`;
           ctx.fillText(n.pitchClass, cx, labelY);
           ctx.restore();
         }
@@ -781,52 +803,48 @@ export class SceneRenderer {
     bright: RGB,
     isHitting: boolean,
     glowAmt: number,
+    pxScale: number,
     fade: number
   ): void {
-    const r = Math.min(5 * bl.scale, botW * 0.36, boxH * 0.36);
+    const r = Math.min(5.5 * bl.scale * pxScale, botW * 0.34, boxH * 0.34);
 
-    // 1. Dark smoked obsidian-glass core with rich neon bottom under-glow
+    // 1. Deep dark smoked-glass interior with rich colored bottom illumination
     this.traceRoundedQuad(ctx, tl, tr, br, bl, r);
     const fillG = ctx.createLinearGradient(0, tl.y, 0, bl.y);
     const darkTint = darkenRgb(color, 0.68);
     fillG.addColorStop(0, `rgba(5, 7, 15, ${(0.88 * fade).toFixed(3)})`);
-    fillG.addColorStop(0.68, rgbToCss(darkTint, (isHitting ? 0.68 : 0.44) * fade));
-    fillG.addColorStop(1, rgbToCss(color, (isHitting ? 0.58 : 0.3) * fade));
+    fillG.addColorStop(0.68, rgbToCss(darkTint, (isHitting ? 0.68 : 0.42) * fade));
+    fillG.addColorStop(1, rgbToCss(color, (isHitting ? 0.56 : 0.28) * fade));
     ctx.fillStyle = fillG;
     ctx.fill();
 
-    // 2. Crisp dark separation moat outside the note so adjacent chord notes NEVER visually stick
-    ctx.strokeStyle = `rgba(2, 4, 9, ${(0.88 * fade).toFixed(3)})`;
-    ctx.lineWidth = Math.max(3.2, 4.4 * bl.scale);
+    // 2. Clean outer dark separation moat (scaled smoothly with pxScale)
+    ctx.strokeStyle = `rgba(2, 4, 9, ${(0.84 * fade).toFixed(3)})`;
+    ctx.lineWidth = Math.max(3.6 * pxScale, 4.6 * bl.scale * pxScale);
     ctx.stroke();
 
-    // 3. Soft luminous colored aura stroke (feeds GPU 3-octave optical bloom with pure neon color!)
+    // 3. Smooth saturated outer neon tube (>= 2.1*pxScale prevents sub-pixel diagonal stair-stepping!)
+    ctx.strokeStyle = rgbToCss(color, (isHitting ? 1.0 : 0.96) * fade);
+    ctx.lineWidth = Math.max(2.1 * pxScale, (isHitting ? 3.1 : 2.5) * bl.scale * pxScale);
+    ctx.stroke();
+
+    // 4. Silky bright inner neon core (smoothly nested inside the outer tube — zero Moiré jaggies!)
     if (glowAmt > 0.05) {
-      ctx.strokeStyle = rgbToCss(color, Math.min(0.85, (isHitting ? 0.72 : 0.44) * glowAmt) * fade);
-      ctx.lineWidth = Math.max(3.0, (isHitting ? 5.2 : 3.8) * bl.scale);
+      ctx.strokeStyle = rgbToCss(
+        lightenRgb(bright, isHitting ? 0.72 : 0.45 * glowAmt),
+        (isHitting ? 0.95 : 0.65) * fade
+      );
+      ctx.lineWidth = Math.max(1.15 * pxScale, (isHitting ? 1.6 : 1.25) * bl.scale * pxScale);
       ctx.stroke();
     }
 
-    // 4. Vivid saturated neon outer tube
-    ctx.strokeStyle = rgbToCss(color, (isHitting ? 1.0 : 0.96) * fade);
-    ctx.lineWidth = Math.max(1.6, (isHitting ? 2.6 : 2.05) * bl.scale);
-    ctx.stroke();
-
-    // 5. Razor-sharp hot luminous inner filament (makes neon tube look truly lit from within!)
-    ctx.strokeStyle = rgbToCss(
-      lightenRgb(bright, isHitting ? 0.72 : 0.48 * glowAmt),
-      (isHitting ? 0.98 : 0.7) * fade
-    );
-    ctx.lineWidth = Math.max(0.75, (isHitting ? 1.2 : 0.9) * bl.scale);
-    ctx.stroke();
-
-    // 6. Bright leading contact bar right at the bottom striking edge
+    // 5. Bright leading contact bar right at the bottom striking edge
     const capInset = Math.min(r, botW * 0.24);
-    ctx.strokeStyle = rgbToCss(lightenRgb(color, isHitting ? 0.85 : 0.58), (isHitting ? 1.0 : 0.85) * fade);
-    ctx.lineWidth = Math.max(1.8, (isHitting ? 3.2 : 2.1) * bl.scale);
+    ctx.strokeStyle = rgbToCss(lightenRgb(color, isHitting ? 0.85 : 0.55), (isHitting ? 1.0 : 0.82) * fade);
+    ctx.lineWidth = Math.max(2.0 * pxScale, (isHitting ? 3.2 : 2.3) * bl.scale * pxScale);
     ctx.beginPath();
-    ctx.moveTo(bl.x + capInset, bl.y - 0.5);
-    ctx.lineTo(br.x - capInset, br.y - 0.5);
+    ctx.moveTo(bl.x + capInset, bl.y - 0.5 * pxScale);
+    ctx.lineTo(br.x - capInset, br.y - 0.5 * pxScale);
     ctx.stroke();
   }
 

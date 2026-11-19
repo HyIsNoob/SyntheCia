@@ -1270,6 +1270,31 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               ))}
             </div>
 
+            <SectionTitle>{isEn ? 'Graphics Quality & Anti-Aliasing' : 'Độ sắc nét & Khử răng cưa (SSAA + FXAA)'}</SectionTitle>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'ultra', label: 'Ultra AA', sub: '2x SSAA' },
+                  { id: 'high', label: 'High', sub: '1.4x AA' },
+                  { id: 'performance', label: 'Fast', sub: '1x Native' },
+                ] as const
+              ).map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => onUpdateSettings({ renderQuality: q.id })}
+                  className={`p-2 rounded-xl text-center border transition cursor-pointer ${
+                    settings.renderQuality === q.id
+                      ? 'bg-violet-500/25 border-violet-400/55 text-white'
+                      : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
+                  }`}
+                >
+                  <div className="text-[11px] font-bold">{q.label}</div>
+                  <div className="text-[9px] text-slate-400">{q.sub}</div>
+                </button>
+              ))}
+            </div>
+
             <SectionTitle>{isEn ? 'Performance & Diagnostics' : 'Hiệu năng & Giám sát'}</SectionTitle>
             <ToggleRow
               label={isEn ? 'Show FPS & GPU Particle Counter' : 'Hiện bộ đếm FPS & Số hạt GPU'}

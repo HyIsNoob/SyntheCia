@@ -7,6 +7,7 @@ export type AudioMode = 'salamander' | 'synth' | 'custom-audio';
 export type HandStyle = 'aura' | 'hologram' | 'neon-wire';
 export type Language = 'vi' | 'en';
 export type PlayMode = 'auto' | 'qwerty' | 'magic-keys';
+export type RenderQuality = 'ultra' | 'high' | 'performance';
 
 export interface MidiTrackInfo {
   trackIndex: number;
@@ -64,6 +65,7 @@ export interface VisualizerSettings {
   // Language & UI
   language: Language;
   showPerfStats: boolean;
+  renderQuality: RenderQuality;
 
   // View & Notes
   viewMode: ViewMode;
@@ -155,6 +157,7 @@ export interface VisualPreset {
 export const DEFAULT_SETTINGS: VisualizerSettings = {
   language: 'en',
   showPerfStats: false,
+  renderQuality: 'ultra',
 
   viewMode: '3d',
   noteStyle: 'neon-hollow',
@@ -173,10 +176,10 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   handStyle: 'aura',
   handOpacity: 0.8,
 
-  bloomIntensity: 1.52,
-  bloomRadius: 1.38,
-  bloomThreshold: 0.24,
-  sharpness: 0.48,
+  bloomIntensity: 1.42,
+  bloomRadius: 1.32,
+  bloomThreshold: 0.25,
+  sharpness: 0.15,
   chromaticAberration: 0.14,
   keyLightBeams: true,
   keyBeamIntensity: 0.45,

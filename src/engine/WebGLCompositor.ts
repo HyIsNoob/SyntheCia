@@ -184,34 +184,47 @@ void main() {
 const BRIGHT_EXTRACT_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uInput;
+uniform vec2 uInputTexel;
 uniform float uThreshold;
 uniform float uPianoHeightNorm;
 in vec2 vUv;
 out vec4 fragColor;
 
-void main() {
-  vec3 c = texture(uInput, vUv).rgb;
+vec3 extractOne(vec3 c, float mask) {
   float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float maxC = max(c.r, max(c.g, c.b));
   float minC = min(c.r, min(c.g, c.b));
   float sat = (maxC - minC) / max(maxC, 0.001);
 
-  // Emphasize saturated neon tubes, sparks & particles so bloom glows with rich pure color!
   float energy = mix(luma, maxC, 0.72) * (0.7 + sat * 0.45);
   float knee = 0.16;
   float soft = clamp((energy - uThreshold + knee) / (2.0 * knee), 0.0, 1.0);
   soft = soft * soft * (3.0 - 2.0 * soft);
   float contrib = max(soft * 0.78, step(uThreshold, energy));
 
-  // Keep unpressed white keys & realistic hands crisp, while letting lit colored keys & strike edge bloom!
+  vec3 richCol = mix(vec3(luma), c, 1.24);
+  return min(vec3(1.4), max(vec3(0.0), richCol) * contrib * max(0.0, energy - uThreshold * 0.55) * 1.38) * mask;
+}
+
+void main() {
+  // 4-tap anti-flicker box pre-filter eliminates diagonal 3D line shimmer & stair-step bloom halos!
+  vec2 hp = uInputTexel * 0.5;
+  vec3 c0 = texture(uInput, vUv + vec2(-hp.x, -hp.y)).rgb;
+  vec3 c1 = texture(uInput, vUv + vec2( hp.x, -hp.y)).rgb;
+  vec3 c2 = texture(uInput, vUv + vec2(-hp.x,  hp.y)).rgb;
+  vec3 c3 = texture(uInput, vUv + vec2( hp.x,  hp.y)).rgb;
+
+  vec3 avg = (c0 + c1 + c2 + c3) * 0.25;
+  float maxC = max(avg.r, max(avg.g, avg.b));
+  float minC = min(avg.r, min(avg.g, avg.b));
+  float sat = (maxC - minC) / max(maxC, 0.001);
+
   float inPiano = smoothstep(uPianoHeightNorm + 0.005, uPianoHeightNorm - 0.014, vUv.y);
   float coloredKeyAllow = smoothstep(0.28, 0.54, sat);
   float mask = mix(1.0, coloredKeyAllow, inPiano);
 
-  // Boost chroma slightly in bloom buffer so neon glow stays lush and vibrant
-  vec3 richCol = mix(vec3(luma), c, 1.24);
-  vec3 bloom = min(vec3(1.4), max(vec3(0.0), richCol) * contrib * max(0.0, energy - uThreshold * 0.55) * 1.38) * mask;
-  fragColor = vec4(bloom, 1.0);
+  vec3 b = (extractOne(c0, mask) + extractOne(c1, mask) + extractOne(c2, mask) + extractOne(c3, mask)) * 0.25;
+  fragColor = vec4(b, 1.0);
 }
 `;
 
@@ -271,6 +284,52 @@ uniform float uAudioEnergy;
 in vec2 vUv;
 out vec4 fragColor;
 
+float rgbLuma(vec3 c) {
+  return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+// Fast FXAA edge smoothing specifically eliminates diagonal stair-stepping on 3D neon borders!
+vec3 sampleFXAA(sampler2D tex, vec2 uv, vec2 px) {
+  vec3 rgbNW = texture(tex, uv + vec2(-px.x, -px.y)).rgb;
+  vec3 rgbNE = texture(tex, uv + vec2( px.x, -px.y)).rgb;
+  vec3 rgbSW = texture(tex, uv + vec2(-px.x,  px.y)).rgb;
+  vec3 rgbSE = texture(tex, uv + vec2( px.x,  px.y)).rgb;
+  vec3 rgbM  = texture(tex, uv).rgb;
+
+  float lumaNW = rgbLuma(rgbNW);
+  float lumaNE = rgbLuma(rgbNE);
+  float lumaSW = rgbLuma(rgbSW);
+  float lumaSE = rgbLuma(rgbSE);
+  float lumaM  = rgbLuma(rgbM);
+
+  float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+  float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+  float range = lumaMax - lumaMin;
+  if (range < max(0.0312, lumaMax * 0.125)) {
+    return rgbM;
+  }
+
+  vec2 dir;
+  dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+  dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+
+  float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * 0.03125, 0.0078125);
+  float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+  dir = clamp(dir * rcpDirMin, vec2(-4.0), vec2(4.0)) * px;
+
+  vec3 rgbA = 0.5 * (
+    texture(tex, uv + dir * (1.0 / 3.0 - 0.5)).rgb +
+    texture(tex, uv + dir * (2.0 / 3.0 - 0.5)).rgb
+  );
+  vec3 rgbB = rgbA * 0.5 + 0.25 * (
+    texture(tex, uv + dir * -0.5).rgb +
+    texture(tex, uv + dir *  0.5).rgb
+  );
+
+  float lumaB = rgbLuma(rgbB);
+  return (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
+}
+
 vec3 acesFilm(vec3 x) {
   const float a = 2.51;
   const float b = 0.03;
@@ -281,45 +340,46 @@ vec3 acesFilm(vec3 x) {
 }
 
 void main() {
-  vec3 center = texture(uBase, vUv).rgb;
+  // Smooth anti-aliased base layer (zero jagged diagonal lines!)
+  vec3 aaBase = sampleFXAA(uBase, vUv, uTexelSize);
+  vec3 base = aaBase;
 
-  // Razor-sharp base detail clarity so note gaps, borders & labels stay tack-sharp
-  vec3 base = center;
+  // Optional gentle clarity punch (clamped tightly so it NEVER creates ringing or jaggies)
   if (uSharpness > 0.01) {
-    vec3 n = texture(uBase, vUv + vec2(0.0, uTexelSize.y)).rgb;
-    vec3 s = texture(uBase, vUv - vec2(0.0, uTexelSize.y)).rgb;
-    vec3 e = texture(uBase, vUv + vec2(uTexelSize.x, 0.0)).rgb;
-    vec3 w = texture(uBase, vUv - vec2(uTexelSize.x, 0.0)).rgb;
-    vec3 blur = (n + s + e + w) * 0.25;
-    vec3 detail = clamp(center - blur, vec3(-0.22), vec3(0.22));
-    base = clamp(center + detail * (uSharpness * 1.1), 0.0, 1.45);
+    vec3 blur = (
+      texture(uBase, vUv + vec2(0.0, uTexelSize.y)).rgb +
+      texture(uBase, vUv - vec2(0.0, uTexelSize.y)).rgb +
+      texture(uBase, vUv + vec2(uTexelSize.x, 0.0)).rgb +
+      texture(uBase, vUv - vec2(uTexelSize.x, 0.0)).rgb
+    ) * 0.25;
+    vec3 detail = clamp(aaBase - blur, vec3(-0.08), vec3(0.08));
+    base = clamp(aaBase + detail * (uSharpness * 0.55), 0.0, 1.45);
   }
 
-  // Subtle radial chromatic aberration strictly on bloom layers (preserves razor-sharp base!)
-  vec2 dir = (vUv - 0.5) * uChromatic * 0.0075 * (1.0 + uAudioEnergy * 0.28);
+  // Subtle radial chromatic aberration strictly on bloom layers (preserves silky crisp base!)
+  vec2 dir = (vUv - 0.5) * uChromatic * 0.006 * (1.0 + uAudioEnergy * 0.25);
 
   vec3 b0;
-  b0.r = texture(uBloom0, vUv + dir * 0.7).r;
+  b0.r = texture(uBloom0, vUv + dir * 0.65).r;
   b0.g = texture(uBloom0, vUv).g;
-  b0.b = texture(uBloom0, vUv - dir * 0.7).b;
+  b0.b = texture(uBloom0, vUv - dir * 0.65).b;
 
   vec3 b1;
-  b1.r = texture(uBloom1, vUv + dir * 1.15).r;
+  b1.r = texture(uBloom1, vUv + dir * 1.1).r;
   b1.g = texture(uBloom1, vUv).g;
-  b1.b = texture(uBloom1, vUv - dir * 1.15).b;
+  b1.b = texture(uBloom1, vUv - dir * 1.1).b;
 
   vec3 b2;
-  b2.r = texture(uBloom2, vUv + dir * 1.65).r;
+  b2.r = texture(uBloom2, vUv + dir * 1.55).r;
   b2.g = texture(uBloom2, vUv).g;
-  b2.b = texture(uBloom2, vUv - dir * 1.65).b;
+  b2.b = texture(uBloom2, vUv - dir * 1.55).b;
 
-  // 3-Octave Optical Inverse-Square Glow Stack (luscious AAA neon radiance, zero milky haze!)
-  vec3 rawBloom = b0 * 0.76 + b1 * 0.58 + b2 * 0.36;
+  // 3-Octave Optical Inverse-Square Glow Stack
+  vec3 rawBloom = b0 * 0.72 + b1 * 0.54 + b2 * 0.32;
   float bLuma = dot(rawBloom, vec3(0.2126, 0.7152, 0.0722));
-  vec3 satBloom = max(vec3(0.0), mix(vec3(bLuma), rawBloom, 1.28));
+  vec3 satBloom = max(vec3(0.0), mix(vec3(bLuma), rawBloom, 1.26));
   vec3 bloom = satBloom * uBloomIntensity * (1.0 + uAudioEnergy * 0.14);
 
-  // Preserve dark gaps between notes while letting vibrant neon bloom radiate around them
   vec3 hdr = base + bloom * (1.0 - min(vec3(0.32), base * 0.25));
   vec3 mapped = mix(hdr, acesFilm(hdr * 1.06), smoothstep(0.78, 2.4, max(hdr.r, max(hdr.g, hdr.b))));
   fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);
@@ -779,6 +839,11 @@ export class WebGLCompositor {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, baseFbo.tex);
       gl.uniform1i(gl.getUniformLocation(this.brightProg!, 'uInput'), 0);
+      gl.uniform2f(
+        gl.getUniformLocation(this.brightProg!, 'uInputTexel'),
+        1.0 / Math.max(1, baseFbo.width),
+        1.0 / Math.max(1, baseFbo.height)
+      );
       gl.uniform1f(gl.getUniformLocation(this.brightProg!, 'uThreshold'), settings.bloomThreshold);
       gl.uniform1f(gl.getUniformLocation(this.brightProg!, 'uPianoHeightNorm'), settings.pianoHeightRatio);
       gl.bindVertexArray(this.emptyVao);

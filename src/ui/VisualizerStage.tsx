@@ -210,6 +210,25 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     sceneRef.current?.setCustomBackground(
       settings.backgroundPreset === 'custom' ? settings.customBgUrl : null
     );
+    // Re-sync SSAA buffer resolution immediately when user switches Render Quality
+    const container = containerRef.current;
+    if (container && sceneRef.current && compositorRef.current) {
+      const rect = container.getBoundingClientRect();
+      const nativeDpr = window.devicePixelRatio || 1;
+      const quality = settings.renderQuality ?? 'ultra';
+      const targetScale =
+        quality === 'ultra'
+          ? Math.max(nativeDpr, 1.75)
+          : quality === 'high'
+            ? Math.max(nativeDpr, 1.35)
+            : Math.min(nativeDpr, 1.0);
+      const maxWidth = quality === 'ultra' ? 2560 : quality === 'high' ? 1920 : 1440;
+      const clampedScale = Math.min(2.0, targetScale, maxWidth / Math.max(1, rect.width));
+      const w = Math.max(320, Math.round(rect.width * clampedScale));
+      const h = Math.max(240, Math.round(rect.height * clampedScale));
+      sceneRef.current.resize(w, h);
+      compositorRef.current.resize(w, h);
+    }
   }, [settings]);
 
   useEffect(() => {
@@ -354,9 +373,20 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
 
     const syncSize = () => {
       const rect = container.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(320, Math.round(rect.width * dpr));
-      const h = Math.max(240, Math.round(rect.height * dpr));
+      const nativeDpr = window.devicePixelRatio || 1;
+      const quality = settingsRef.current.renderQuality ?? 'ultra';
+      const targetScale =
+        quality === 'ultra'
+          ? Math.max(nativeDpr, 1.75)
+          : quality === 'high'
+            ? Math.max(nativeDpr, 1.35)
+            : Math.min(nativeDpr, 1.0);
+
+      // Cap max width at 2560px to keep WebGL2 60fps silky even on 4K displays
+      const maxWidth = quality === 'ultra' ? 2560 : quality === 'high' ? 1920 : 1440;
+      const clampedScale = Math.min(2.0, targetScale, maxWidth / Math.max(1, rect.width));
+      const w = Math.max(320, Math.round(rect.width * clampedScale));
+      const h = Math.max(240, Math.round(rect.height * clampedScale));
       scene.resize(w, h);
       compositor.resize(w, h);
     };
@@ -449,7 +479,7 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         }
       }
 
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const effectiveScale = compositor.canvas.width / Math.max(1, container.clientWidth);
       const audioEnergy = audioEngine.getAudioEnergy(0);
       const spectrumBins = curSettings.eqSpectrumEnabled
         ? audioEngine.getSpectrumBins(audioEnergy.overall)
@@ -483,7 +513,7 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         frame.triggers,
         clockSec,
         dt,
-        dpr,
+        effectiveScale,
         curSettings,
         blendedEnergy
       );
