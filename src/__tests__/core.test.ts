@@ -12,10 +12,13 @@ import {
 } from '../engine/PianoGeometry';
 import { exportParsedMidiToBlob, transcribeMonoPcmToMidi } from '../audio/AudioToMidi';
 import { DEMO_SONGS } from '../midi/DemoSongs';
+import { findActiveLyricIndex, parseLyricsText } from '../midi/LyricsParser';
 import { buildMagicSteps, findMagicStepIndexAtTime } from '../midi/MagicKeys';
 import { detectChordForNotes, findVisibleNoteRange, midiToNoteName, parseMidiBuffer } from '../midi/MidiParser';
 import { isMagicTriggerKey, qwertyCodeToMidi } from '../midi/QwertyPiano';
 import { assignNotesToFingers, VirtualHandsController } from '../engine/VirtualHands';
+import { decodePresetFromHash, encodePresetToHash } from '../storage/SettingsStorage';
+import { DEFAULT_SETTINGS } from '../types/visualizer';
 
 describe('PianoGeometry', () => {
   it('generates exact 88-key layout with 52 white keys and 36 black keys', () => {
@@ -249,5 +252,48 @@ describe('Performance Windowing, Magic Keys & QWERTY Piano', () => {
 
     const midBlob = exportParsedMidiToBlob(parsed);
     expect(midBlob.size).toBeGreaterThan(40);
+  });
+
+  it('parses LRC & SRT lyrics and finds active line accurately', () => {
+    const lrc = `[00:01.50] First glowing line\n[00:05.25] Second chorus line`;
+    const parsedLrc = parseLyricsText(lrc);
+    expect(parsedLrc).toHaveLength(2);
+    expect(findActiveLyricIndex(parsedLrc, 0.5)).toBe(-1);
+    expect(findActiveLyricIndex(parsedLrc, 2.1)).toBe(0);
+    expect(findActiveLyricIndex(parsedLrc, 6.0)).toBe(1);
+
+    const srt = `1\n00:00:02,000 --> 00:00:04,500\nHello Piano\n\n2\n00:00:05,000 --> 00:00:08,000\nStarlight`;
+    const parsedSrt = parseLyricsText(srt);
+    expect(parsedSrt).toHaveLength(2);
+    expect(parsedSrt[0].text).toBe('Hello Piano');
+    expect(findActiveLyricIndex(parsedSrt, 3.0)).toBe(0);
+    expect(findActiveLyricIndex(parsedSrt, 6.2)).toBe(1);
+  });
+
+  it('round-trips shareable preset URL hashes safely without leaking object URLs', () => {
+    const custom = {
+      ...DEFAULT_SETTINGS,
+      particleTheme: 'sakura' as const,
+      instrument: 'felt' as const,
+      dynamicCameraEnabled: true,
+      transposeSemitones: 3,
+      customBgUrl: 'blob:secret-local',
+    };
+    const hash = encodePresetToHash(custom);
+    expect(hash.startsWith('#preset=')).toBe(true);
+    const decoded = decodePresetFromHash(hash);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.particleTheme).toBe('sakura');
+    expect(decoded?.instrument).toBe('felt');
+    expect(decoded?.dynamicCameraEnabled).toBe(true);
+    expect(decoded?.transposeSemitones).toBe(3);
+    expect(decoded?.customBgUrl).toBeUndefined();
+  });
+
+  it('shifts 3D horizon cleanly with dynamic camera vanishXOffset while anchoring keys at hitLineY', () => {
+    const baseHit = projectHighwayPoint(0.5, 0, 1920, 900, true, 0.6, 0.08);
+    expect(baseHit.x).toBeCloseTo(960, 1);
+    const farCenter = projectHighwayPoint(0.5, 1, 1920, 900, true, 0.6, 0.08);
+    expect(farCenter.x).toBeGreaterThan(960);
   });
 });

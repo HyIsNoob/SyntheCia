@@ -6,7 +6,14 @@ export type TranscriptionSensitivity = 'melodic' | 'balanced' | 'polyphonic';
 
 export interface TranscribeOptions {
   sensitivity?: TranscriptionSensitivity;
+  filterDrums?: boolean;
   onProgress?: (pct: number) => void;
+}
+
+export interface DecodedMonoAudio {
+  samples: Float32Array;
+  sampleRate: number;
+  name: string;
 }
 
 const MIN_MIDI = 28; // E1 (avoids low sub-bass rumble artifacts)
@@ -91,6 +98,7 @@ export async function transcribeMonoPcmToMidi(
   options: TranscribeOptions = {}
 ): Promise<ParsedMidi> {
   const sensitivity = options.sensitivity ?? 'balanced';
+  const filterDrums = options.filterDrums ?? true;
   const onProgress = options.onProgress;
 
   const pcm = downsampleMono(rawSamples, sampleRate);
@@ -145,15 +153,57 @@ export async function transcribeMonoPcmToMidi(
     }
   }
 
-  // Normalize + Suppress Harmonic Ghosts (2nd harmonic +12, 3rd harmonic +19, 4th +24)
+  // Normalize + HPSS Percussive/Drum Suppression + Harmonic De-Ghosting
   const normScale = 1 / Math.max(globalPeak, 1e-5);
+  const normalized = new Float32Array(numFrames * NUM_PITCHES);
+  for (let i = 0; i < normalized.length; i++) {
+    normalized[i] = energyGrid[i] * normScale;
+  }
+
+  // Optional HPSS (Harmonic-Percussive Separation):
+  // Drums/snares/kicks create broadband vertical spikes across many pitches in a single frame,
+  // whereas pitched musical notes persist horizontally across >= 2-3 consecutive frames.
+  if (filterDrums && numFrames >= 5) {
+    for (let fi = 1; fi < numFrames - 1; fi++) {
+      const rowOff = fi * NUM_PITCHES;
+      // Measure broadband flatness across all 73 pitch bins in this frame
+      let activeBins = 0;
+      let sumE = 0;
+      for (let p = 0; p < NUM_PITCHES; p++) {
+        const v = normalized[rowOff + p];
+        if (v > 0.08) activeBins++;
+        sumE += v;
+      }
+      const meanE = sumE / NUM_PITCHES;
+      const isBroadbandTransient = activeBins > NUM_PITCHES * 0.42;
+
+      for (let p = 0; p < NUM_PITCHES; p++) {
+        const cur = normalized[rowOff + p];
+        const prev = normalized[(fi - 1) * NUM_PITCHES + p];
+        const next = normalized[(fi + 1) * NUM_PITCHES + p];
+        // Temporal harmonic support (median of 3 frames)
+        const harm =
+          prev <= cur
+            ? cur <= next
+              ? cur
+              : Math.max(prev, next)
+            : prev <= next
+              ? prev
+              : Math.max(cur, next);
+        // Suppress broadband drum floor + isolated 1-frame transient noise
+        const floorCut = isBroadbandTransient ? Math.max(0, cur - meanE * 1.45) : cur;
+        normalized[rowOff + p] = floorCut * 0.52 + harm * 0.48;
+      }
+    }
+  }
+
   const cleaned = new Float32Array(numFrames * NUM_PITCHES);
 
   for (let fi = 0; fi < numFrames; fi++) {
     const rowOff = fi * NUM_PITCHES;
-    // Copy normalized
+    // Copy harmonic-enhanced normalized energies
     for (let p = 0; p < NUM_PITCHES; p++) {
-      cleaned[rowOff + p] = energyGrid[rowOff + p] * normScale;
+      cleaned[rowOff + p] = normalized[rowOff + p];
     }
     // Subtract overtone bleed bottom-up from strong fundamentals
     for (let p = 0; p < NUM_PITCHES; p++) {
@@ -293,6 +343,28 @@ export async function transcribeMonoPcmToMidi(
 
   notes.sort((a, b) => a.start - b.start || a.midi - b.midi);
 
+  // Smart Dynamic Hand Split: smoothly tracks moving bass vs. melody split point (F3..F4)
+  let runningSplit = 60;
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    // Look at simultaneous notes within 65ms chord cluster
+    let minM = n.midi;
+    let maxM = n.midi;
+    for (let j = Math.max(0, i - 4); j < Math.min(notes.length, i + 5); j++) {
+      if (Math.abs(notes[j].start - n.start) <= 0.065) {
+        if (notes[j].midi < minM) minM = notes[j].midi;
+        if (notes[j].midi > maxM) maxM = notes[j].midi;
+      }
+    }
+    if (maxM - minM >= 12) {
+      const targetSplit = Math.max(53, Math.min(65, (minM + maxM) * 0.48));
+      runningSplit = runningSplit * 0.85 + targetSplit * 0.15;
+    }
+    const hand: 'left' | 'right' = n.midi < runningSplit ? 'left' : 'right';
+    n.hand = hand;
+    n.trackIndex = hand === 'left' ? 0 : 1;
+  }
+
   // Estimate BPM from inter-onset intervals (clamped to musical 72..164 BPM)
   const bpm = estimateBpmFromOnsets(onsetTimes);
   let maxNoteDuration = 0.5;
@@ -366,22 +438,22 @@ function estimateBpmFromOnsets(onsets: number[]): number {
 }
 
 /**
- * Decodes a browser audio File (.mp3 / .wav / .ogg / .flac / .m4a) and transcribes it to ParsedMidi!
+ * Decodes an uploaded browser audio File (.mp3 / .wav / .ogg / .flac / .m4a) into mono PCM
+ * so we can run transcription in a Web Worker AND support instant Re-Transcribe!
  */
-export async function transcribeAudioFileToMidi(
+export async function decodeAudioFileToMonoPcm(
   file: File,
-  options: TranscribeOptions = {}
-): Promise<ParsedMidi> {
+  onProgress?: (pct: number) => void
+): Promise<DecodedMonoAudio> {
   const AudioCtx =
     window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AudioCtx();
   try {
-    options.onProgress?.(4);
+    onProgress?.(4);
     const arr = await file.arrayBuffer();
     const audioBuf = await ctx.decodeAudioData(arr);
-    options.onProgress?.(10);
+    onProgress?.(10);
 
-    // Mono downmix
     const len = audioBuf.length;
     const mono = new Float32Array(len);
     const numCh = audioBuf.numberOfChannels;
@@ -389,11 +461,87 @@ export async function transcribeAudioFileToMidi(
       const data = audioBuf.getChannelData(ch);
       for (let i = 0; i < len; i++) mono[i] += data[i] / numCh;
     }
-
-    return await transcribeMonoPcmToMidi(mono, audioBuf.sampleRate, file.name, options);
+    // Pre-downsample immediately so cached PCM uses ~4x less RAM and transfers fast to Worker!
+    const downsampled = downsampleMono(mono, audioBuf.sampleRate);
+    const sr = audioBuf.sampleRate <= TARGET_SR + 100 ? audioBuf.sampleRate : TARGET_SR;
+    return { samples: downsampled, sampleRate: sr, name: file.name };
   } finally {
     void ctx.close();
   }
+}
+
+/**
+ * Runs polyphonic transcription inside a dedicated Web Worker (0% UI lag!) with graceful
+ * fallback to async main-thread execution if Worker is unavailable.
+ */
+export async function transcribeMonoPcmViaWorker(
+  decoded: DecodedMonoAudio,
+  options: TranscribeOptions = {}
+): Promise<ParsedMidi> {
+  if (typeof Worker === 'undefined') {
+    return transcribeMonoPcmToMidi(decoded.samples, decoded.sampleRate, decoded.name, options);
+  }
+
+  return new Promise<ParsedMidi>((resolve, reject) => {
+    try {
+      const worker = new Worker(new URL('./audioToMidi.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+
+      worker.onmessage = (ev: MessageEvent) => {
+        const msg = ev.data as
+          | { type: 'progress'; pct: number }
+          | { type: 'done'; result: ParsedMidi }
+          | { type: 'error'; message: string };
+        if (msg.type === 'progress') {
+          options.onProgress?.(msg.pct);
+        } else if (msg.type === 'done') {
+          worker.terminate();
+          resolve(msg.result);
+        } else if (msg.type === 'error') {
+          worker.terminate();
+          reject(new Error(msg.message));
+        }
+      };
+
+      worker.onerror = () => {
+        worker.terminate();
+        // Seamless fallback to main thread if worker fails to load
+        transcribeMonoPcmToMidi(decoded.samples, decoded.sampleRate, decoded.name, options)
+          .then(resolve)
+          .catch(reject);
+      };
+
+      // Copy samples so decoded cache remains reusable for instant Re-Transcribe
+      const copy = new Float32Array(decoded.samples);
+      worker.postMessage(
+        {
+          samples: copy,
+          sampleRate: decoded.sampleRate,
+          songName: decoded.name,
+          sensitivity: options.sensitivity ?? 'balanced',
+          filterDrums: options.filterDrums ?? true,
+        },
+        [copy.buffer]
+      );
+    } catch {
+      transcribeMonoPcmToMidi(decoded.samples, decoded.sampleRate, decoded.name, options)
+        .then(resolve)
+        .catch(reject);
+    }
+  });
+}
+
+/**
+ * Decodes a browser audio File (.mp3 / .wav / .ogg / .flac / .m4a) and transcribes it to ParsedMidi!
+ */
+export async function transcribeAudioFileToMidi(
+  file: File,
+  options: TranscribeOptions = {}
+): Promise<{ parsed: ParsedMidi; decoded: DecodedMonoAudio }> {
+  const decoded = await decodeAudioFileToMonoPcm(file, options.onProgress);
+  const parsed = await transcribeMonoPcmViaWorker(decoded, options);
+  return { parsed, decoded };
 }
 
 /**

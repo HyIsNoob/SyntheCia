@@ -93,7 +93,8 @@ export function projectHighwayPoint(
   width: number,
   hitLineY: number,
   is3D: boolean,
-  perspectiveTilt: number
+  perspectiveTilt: number,
+  vanishXOffset = 0
 ): ProjectedPoint {
   if (!is3D) {
     return {
@@ -114,7 +115,8 @@ export function projectHighwayPoint(
   const progressY = (1 - persp) / (1 - topEdgeFactor);
   const y = hitLineY * (1 - progressY);
 
-  const centerX = width * 0.5;
+  // Dynamic camera vanishing-point drift shifts smoothly toward upper horizon while keeping hitLineY locked to keys!
+  const centerX = width * (0.5 + vanishXOffset * (1 - persp));
   const x = centerX + (normX - 0.5) * width * persp;
 
   return { x, y, scale: persp };

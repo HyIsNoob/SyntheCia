@@ -4,12 +4,16 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileText,
   Flame,
   Globe,
+  GraduationCap,
   Image as ImageIcon,
   Keyboard,
+  Link2,
   Music,
   Plug,
+  RefreshCw,
   RotateCcw,
   Settings,
   Sparkles,
@@ -33,10 +37,12 @@ import {
   type ColorMode,
   type CustomVideoMode,
   type HandStyle,
+  type InstrumentPreset,
   type NoteStyle,
   type ParsedMidi,
   type ParticleTheme,
   type PlayMode,
+  type PracticeHand,
   type TrackOverride,
   type TranscriptionSensitivity,
   type VisualizerSettings,
@@ -56,6 +62,9 @@ interface InspectorDrawerProps {
   sampleState: SampleLoadState;
   sampleProgress: { loaded: number; total: number };
   customAudioName: string | null;
+  lyricsName: string | null;
+  lyricsCount: number;
+  canRetranscribe: boolean;
   usbMidiSupported: boolean;
   usbMidiConnected: boolean;
   usbMidiDevices: MidiDeviceInfo[];
@@ -66,9 +75,13 @@ interface InspectorDrawerProps {
   onApplyPreset: (presetId: string) => void;
   onExportPresetJson: () => void;
   onImportPresetJson: (file: File) => void;
+  onSharePresetUrl: () => void;
   onClearBrowserStorage: () => void;
   onTranscribeAudio: (file: File) => void;
+  onRetranscribeAudio: () => void;
   onExportCurrentMidi: () => void;
+  onUploadLyrics: (file: File) => void;
+  onClearLyrics: () => void;
   onUpdateTrackOverride: (trackIndex: number, patch: Partial<TrackOverride>) => void;
   onResetTrackOverrides: () => void;
   onChangePlayMode: (mode: PlayMode) => void;
@@ -158,6 +171,9 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   sampleState,
   sampleProgress,
   customAudioName,
+  lyricsName,
+  lyricsCount,
+  canRetranscribe,
   usbMidiSupported,
   usbMidiConnected,
   usbMidiDevices,
@@ -168,9 +184,13 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   onApplyPreset,
   onExportPresetJson,
   onImportPresetJson,
+  onSharePresetUrl,
   onClearBrowserStorage,
   onTranscribeAudio,
+  onRetranscribeAudio,
   onExportCurrentMidi,
+  onUploadLyrics,
+  onClearLyrics,
   onUpdateTrackOverride,
   onResetTrackOverrides,
   onChangePlayMode,
@@ -191,6 +211,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const transcribeInputRef = useRef<HTMLInputElement | null>(null);
+  const lyricsInputRef = useRef<HTMLInputElement | null>(null);
   const presetInputRef = useRef<HTMLInputElement | null>(null);
   const t = getTranslations(settings.language);
   const isEn = settings.language === 'en';
@@ -609,6 +630,12 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               max={1.0}
               step={0.05}
               onChange={(v) => onUpdateSettings({ cameraPunchIntensity: v })}
+            />
+            <ToggleRow
+              label={isEn ? 'Dynamic 3D Camera Drift' : 'Góc máy 3D lướt theo giai điệu'}
+              hint={isEn ? 'Smoothly pans 3D horizon toward active notes' : 'Camera 3D lia mượt nhẹ theo vùng phím đang đánh'}
+              checked={settings.dynamicCameraEnabled}
+              onChange={(v) => onUpdateSettings({ dynamicCameraEnabled: v })}
             />
             <ToggleRow
               label={isEn ? 'Plasma Strike Edge & Lens Flares' : 'Sóng Plasma & Anamorphic Flare'}
@@ -1041,6 +1068,54 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               )}
             </div>
 
+            <SectionTitle>{isEn ? 'Luminous On-Canvas Lyrics (.lrc / .srt)' : 'Lời bài hát phát sáng trên Canvas (.lrc / .srt)'}</SectionTitle>
+            <input
+              ref={lyricsInputRef}
+              type="file"
+              accept=".lrc,.srt,.txt"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onUploadLyrics(file);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => lyricsInputRef.current?.click()}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-semibold text-slate-200 transition cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-cyan-300" />
+                <span className="truncate">
+                  {lyricsName
+                    ? `${lyricsName} (${lyricsCount})`
+                    : isEn
+                      ? 'Load .lrc / .srt Lyrics'
+                      : 'Nạp lời bài hát (.lrc / .srt)'}
+                </span>
+              </button>
+              {lyricsName && (
+                <button
+                  type="button"
+                  onClick={onClearLyrics}
+                  className="p-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 cursor-pointer"
+                  title={isEn ? 'Remove lyrics' : 'Xóa lời bài hát'}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {lyricsCount > 0 && (
+              <ToggleRow
+                label={isEn ? 'Show Glowing Lyrics' : 'Hiện lời bài hát trên Canvas'}
+                checked={settings.showLyrics}
+                onChange={(v) => onUpdateSettings({ showLyrics: v })}
+              />
+            )}
+
             <SectionTitle>{isEn ? 'Clean Video Mode & 60fps Capture' : 'Quay Video Sạch 60fps'}</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {(
@@ -1184,6 +1259,26 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
               <button
                 type="button"
+                onClick={() => onChangePlayMode('practice')}
+                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  playMode === 'practice'
+                    ? 'bg-cyan-500/20 border-cyan-400/55 text-white shadow-[0_0_18px_rgba(34,211,238,0.18)]'
+                    : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07]'
+                }`}
+              >
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-cyan-300" />
+                  <span>{isEn ? 'Wait-for-Note Practice' : 'Luyện đàn (Chờ bấm đúng phím)'}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                  {isEn
+                    ? 'Pauses at each chord until you press the highlighted key(s) on USB MIDI, QWERTY, or screen!'
+                    : 'Nốt rơi dừng chờ đến khi bạn bấm đúng phím sáng vàng trên đàn USB, bàn phím hoặc màn hình!'}
+                </div>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => onChangePlayMode('qwerty')}
                 className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
                   playMode === 'qwerty'
@@ -1202,6 +1297,44 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 </div>
               </button>
             </div>
+
+            {playMode === 'practice' && (
+              <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-400/25 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+                  {isEn ? 'Practice Hand' : 'Chọn tay cần luyện'}
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: 'both', label: isEn ? 'Both Hands' : 'Cả 2 tay' },
+                      { id: 'right', label: isEn ? 'Right Only' : 'Tay Phải' },
+                      { id: 'left', label: isEn ? 'Left Only' : 'Tay Trái' },
+                    ] as Array<{ id: PracticeHand; label: string }>
+                  ).map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onClick={() => onUpdateSettings({ practiceHand: h.id })}
+                      className={`py-1.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                        settings.practiceHand === h.id
+                          ? 'bg-cyan-500/30 border-cyan-400/60 text-white'
+                          : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {h.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {playMode !== 'auto' && (
+              <ToggleRow
+                label={isEn ? 'Rhythm Combo & Accuracy HUD' : 'Hiện điểm nhịp điệu & Combo'}
+                checked={settings.showRhythmHud}
+                onChange={(v) => onUpdateSettings({ showRhythmHud: v })}
+              />
+            )}
 
             {playMode === 'magic-keys' && (
               <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-400/25 space-y-2.5">
@@ -1301,6 +1434,11 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   </button>
                 ))}
               </div>
+              <ToggleRow
+                label={isEn ? 'Drum / Percussion Filter (HPSS)' : 'Lọc nhiễu trống / nhạc nền (HPSS)'}
+                checked={settings.filterDrums}
+                onChange={(v) => onUpdateSettings({ filterDrums: v })}
+              />
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
@@ -1327,6 +1465,19 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   <span>{isEn ? 'Export .mid' : 'Tải file .mid'}</span>
                 </button>
               </div>
+              {canRetranscribe && (
+                <button
+                  type="button"
+                  disabled={transcribeProgress !== null}
+                  onClick={onRetranscribeAudio}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl bg-white/8 hover:bg-white/14 border border-violet-400/30 text-violet-200 text-[11px] font-semibold transition cursor-pointer disabled:opacity-45"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>
+                    {isEn ? 'Re-Transcribe with New Settings' : 'Phân tích lại theo mức nhạy mới'}
+                  </span>
+                </button>
+              )}
             </div>
 
             <SectionTitle>USB MIDI Keyboard (Web MIDI)</SectionTitle>
@@ -1359,7 +1510,45 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               </div>
             )}
 
-            <SectionTitle>{isEn ? 'Piano Sound Engine' : 'Âm thanh Piano'}</SectionTitle>
+            <SectionTitle>{isEn ? 'Studio Instrument & Sound Engine' : 'Nhạc cụ Phòng thu & Âm thanh'}</SectionTitle>
+            <div className="grid grid-cols-3 gap-1">
+              {(
+                [
+                  { id: 'grand', label: 'Grand' },
+                  { id: 'felt', label: isEn ? 'Felt Piano' : 'Piano Nỉ' },
+                  { id: 'rhodes', label: 'Rhodes EP' },
+                  { id: 'musicbox', label: 'Music Box' },
+                  { id: 'strings', label: isEn ? 'Grand+Strings' : 'Piano+Dây' },
+                ] as Array<{ id: InstrumentPreset; label: string }>
+              ).map((inst) => (
+                <button
+                  key={inst.id}
+                  type="button"
+                  onClick={() => onUpdateSettings({ instrument: inst.id })}
+                  className={`py-1.5 px-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                    settings.instrument === inst.id
+                      ? 'bg-violet-500/30 border-violet-400/60 text-white'
+                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                  }`}
+                >
+                  {inst.label}
+                </button>
+              ))}
+            </div>
+            <SliderRow
+              label={isEn ? 'Transpose (Pitch Shift)' : 'Nâng / Hạ Tone (Transpose)'}
+              valueText={`${settings.transposeSemitones > 0 ? '+' : ''}${settings.transposeSemitones} st`}
+              value={settings.transposeSemitones}
+              min={-12}
+              max={12}
+              step={1}
+              onChange={(v) => onUpdateSettings({ transposeSemitones: Math.round(v) })}
+            />
+            <ToggleRow
+              label={isEn ? 'Studio Metronome (BPM Click)' : 'Máy đánh nhịp (Metronome)'}
+              checked={settings.metronomeEnabled}
+              onChange={(v) => onUpdateSettings({ metronomeEnabled: v })}
+            />
             <div className="space-y-1.5">
               {(
                 [
@@ -1660,6 +1849,14 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 <span>{t.importPreset}</span>
               </button>
             </div>
+            <button
+              type="button"
+              onClick={onSharePresetUrl}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-violet-500/18 hover:bg-violet-500/28 border border-violet-400/35 text-xs font-semibold text-violet-100 transition cursor-pointer"
+            >
+              <Link2 className="w-3.5 h-3.5 text-violet-300" />
+              <span>{isEn ? 'Copy Shareable Preset Link' : 'Sao chép Link chia sẻ Preset'}</span>
+            </button>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"

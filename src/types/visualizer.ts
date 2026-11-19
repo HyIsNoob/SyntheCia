@@ -4,13 +4,30 @@ export type ColorMode = 'dual-hand' | 'rainbow' | 'velocity' | 'track';
 export type BackgroundPreset = 'void' | 'aurora' | 'nebula' | 'midnight-ember' | 'custom' | 'video';
 export type AspectRatioMode = 'full' | '16:9' | '9:16' | '1:1';
 export type AudioMode = 'salamander' | 'synth' | 'custom-audio';
+export type InstrumentPreset = 'grand' | 'felt' | 'rhodes' | 'musicbox' | 'strings';
 export type HandStyle = 'aura' | 'hologram' | 'neon-wire';
 export type Language = 'vi' | 'en';
-export type PlayMode = 'auto' | 'qwerty' | 'magic-keys';
+export type PlayMode = 'auto' | 'qwerty' | 'magic-keys' | 'practice';
+export type PracticeHand = 'both' | 'right' | 'left';
 export type RenderQuality = 'ultra' | 'high' | 'performance';
 export type ParticleTheme = 'cosmic' | 'fire' | 'sakura' | 'frost';
 export type CustomVideoMode = 'backdrop' | 'overhead-hands';
 export type TranscriptionSensitivity = 'melodic' | 'balanced' | 'polyphonic';
+
+export interface LyricLine {
+  time: number; // seconds
+  endTime: number; // seconds
+  text: string;
+}
+
+export interface RhythmFeedback {
+  rating: 'PERFECT' | 'GREAT' | 'GOOD';
+  combo: number;
+  maxCombo: number;
+  accuracy: number; // 0..100
+  hits: number;
+  timestamp: number;
+}
 
 export interface MidiTrackInfo {
   trackIndex: number;
@@ -108,6 +125,8 @@ export interface VisualizerSettings {
   sustainAuraEnabled: boolean;
   electricArcsEnabled: boolean;
   cameraPunchIntensity: number; // 0..1.0 subtle fortissimo bass impact zoom
+  dynamicCameraEnabled: boolean; // smooth 3D vanishing-point camera drift following harmony
+  showLyrics: boolean; // render loaded .lrc / .srt lyrics cleanly on canvas
 
   // GPU Physics Particles
   particlesEnabled: boolean;
@@ -153,14 +172,20 @@ export interface VisualizerSettings {
   watermarkText: string;
   watermarkOpacity: number; // 0.1..1.0
 
-  // Audio & Interactive Magic Keys
+  // Audio, Studio Instruments & Interactive Modes
   audioMode: AudioMode;
+  instrument: InstrumentPreset;
+  transposeSemitones: number; // -12..12
+  metronomeEnabled: boolean;
   masterVolume: number; // 0..1.0
   reverbMix: number; // 0..1.0
   customAudioOffsetMs: number; // -2000..2000
   magicSmoothness: number; // 0.2..1.0 adaptive rubato flow smoothness
   magicChordWindowMs: number; // 25..110ms chord grouping window
+  practiceHand: PracticeHand;
+  showRhythmHud: boolean;
   transcriptionSensitivity: TranscriptionSensitivity;
+  filterDrums: boolean; // HPSS percussive suppression in Audio -> MIDI
 
   // Video & Clean Mode
   aspectRatio: AspectRatioMode;
@@ -219,6 +244,8 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   sustainAuraEnabled: true,
   electricArcsEnabled: false,
   cameraPunchIntensity: 0,
+  dynamicCameraEnabled: false,
+  showLyrics: true,
 
   particlesEnabled: true,
   particleTheme: 'cosmic',
@@ -261,12 +288,18 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   watermarkOpacity: 0.55,
 
   audioMode: 'salamander',
+  instrument: 'grand',
+  transposeSemitones: 0,
+  metronomeEnabled: false,
   masterVolume: 0.82,
   reverbMix: 0.36,
   customAudioOffsetMs: 0,
   magicSmoothness: 0.82,
   magicChordWindowMs: 55,
+  practiceHand: 'both',
+  showRhythmHud: true,
   transcriptionSensitivity: 'balanced',
+  filterDrums: true,
 
   aspectRatio: 'full',
   recordAutoStart: true,

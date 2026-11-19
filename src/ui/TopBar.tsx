@@ -5,21 +5,26 @@ import {
   Circle,
   EyeOff,
   FileMusic,
+  GraduationCap,
   Keyboard,
   Layers,
   Settings,
   Sparkles,
   Square,
+  Trash2,
   Upload,
   Wand2,
 } from 'lucide-react';
 import { getTranslations } from '../i18n/translations';
 import { DEMO_SONGS } from '../midi/DemoSongs';
+import type { SavedSongMeta } from '../storage/SettingsStorage';
 import type { ParsedMidi, PlayMode, VisualizerSettings } from '../types/visualizer';
 
 interface TopBarProps {
   midi: ParsedMidi | null;
   activeDemoId: string | null;
+  savedSongs: SavedSongMeta[];
+  activeLibrarySongId: string | null;
   settings: VisualizerSettings;
   playMode: PlayMode;
   inspectorOpen: boolean;
@@ -28,6 +33,8 @@ interface TopBarProps {
   isWebGL2: boolean;
   usbMidiCount: number;
   onSelectDemo: (demoId: string) => void;
+  onSelectSavedSong: (songId: string) => void;
+  onDeleteSavedSong: (songId: string) => void;
   onUploadMidi: (file: File) => void;
   onUpdateSettings: (patch: Partial<VisualizerSettings>) => void;
   onChangePlayMode: (mode: PlayMode) => void;
@@ -45,6 +52,8 @@ function formatDuration(sec: number): string {
 export const TopBar: React.FC<TopBarProps> = ({
   midi,
   activeDemoId,
+  savedSongs,
+  activeLibrarySongId,
   settings,
   playMode,
   inspectorOpen,
@@ -53,6 +62,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   isWebGL2,
   usbMidiCount,
   onSelectDemo,
+  onSelectSavedSong,
+  onDeleteSavedSong,
   onUploadMidi,
   onUpdateSettings,
   onChangePlayMode,
@@ -63,6 +74,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [demoMenuOpen, setDemoMenuOpen] = useState(false);
   const t = getTranslations(settings.language);
+  const isEn = settings.language === 'en';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,7 +85,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   const cyclePlayMode = () => {
-    const order: PlayMode[] = ['auto', 'magic-keys', 'qwerty'];
+    const order: PlayMode[] = ['auto', 'magic-keys', 'practice', 'qwerty'];
     const next = order[(order.indexOf(playMode) + 1) % order.length];
     onChangePlayMode(next);
   };
@@ -147,8 +159,54 @@ export const TopBar: React.FC<TopBarProps> = ({
           {demoMenuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setDemoMenuOpen(false)} />
-              <div className="absolute left-0 mt-2 w-72 z-20 rounded-2xl bg-slate-950/92 backdrop-blur-2xl border border-white/12 shadow-2xl p-1.5">
-                <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <div className="absolute left-0 mt-2 w-76 max-h-[72vh] overflow-y-auto z-20 rounded-2xl bg-slate-950/94 backdrop-blur-2xl border border-white/12 shadow-2xl p-1.5 space-y-1">
+                {savedSongs.length > 0 && (
+                  <div className="pb-1.5 border-b border-white/8">
+                    <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
+                      {isEn ? `Saved Library (${savedSongs.length})` : `Thư viện đã lưu (${savedSongs.length})`}
+                    </div>
+                    {savedSongs.map((s) => {
+                      const selected = activeLibrarySongId === s.id;
+                      return (
+                        <div
+                          key={s.id}
+                          className={`group flex items-center gap-1 px-2 py-1.5 rounded-xl transition ${
+                            selected
+                              ? 'bg-cyan-500/20 border border-cyan-400/35 text-white'
+                              : 'hover:bg-white/6 text-slate-200 border border-transparent'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectSavedSong(s.id);
+                              setDemoMenuOpen(false);
+                            }}
+                            className="flex-1 text-left min-w-0 cursor-pointer"
+                          >
+                            <div className="text-xs font-semibold truncate">{s.name}</div>
+                            <div className="text-[10px] text-slate-400">
+                              {s.noteCount} {t.notesUnit} • {formatDuration(s.duration)}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteSavedSong(s.id);
+                            }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-rose-500/15 opacity-70 group-hover:opacity-100 cursor-pointer"
+                            title={isEn ? 'Remove from library' : 'Xóa khỏi thư viện'}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   {t.demoHeader}
                 </div>
                 {DEMO_SONGS.map((demo) => {
@@ -211,30 +269,38 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
 
-        {/* Quick Play Mode Toggle (Auto -> Magic Keys -> QWERTY) */}
+        {/* Quick Play Mode Toggle (Auto -> Magic Keys -> Practice -> QWERTY) */}
         <button
           type="button"
           onClick={cyclePlayMode}
           className={`hidden md:flex items-center gap-1.5 px-2.5 py-2 rounded-xl backdrop-blur-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition cursor-pointer ${
             playMode === 'magic-keys'
               ? 'bg-amber-500/25 border-amber-400/55 text-amber-100 shadow-[0_0_18px_rgba(245,158,11,0.35)]'
-              : playMode === 'qwerty'
-                ? 'bg-emerald-500/22 border-emerald-400/50 text-emerald-100'
-                : 'bg-slate-950/72 hover:bg-slate-900/90 border-white/10 text-slate-300 hover:text-white'
+              : playMode === 'practice'
+                ? 'bg-cyan-500/22 border-cyan-400/55 text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,0.3)]'
+                : playMode === 'qwerty'
+                  ? 'bg-emerald-500/22 border-emerald-400/50 text-emerald-100'
+                  : 'bg-slate-950/72 hover:bg-slate-900/90 border-white/10 text-slate-300 hover:text-white'
           }`}
           title={playMode === 'magic-keys' ? t.magicHint : t.qwertyHint}
         >
           {playMode === 'magic-keys' ? (
             <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+          ) : playMode === 'practice' ? (
+            <GraduationCap className="w-3.5 h-3.5 text-cyan-300" />
           ) : (
             <Keyboard className="w-3.5 h-3.5 text-violet-300" />
           )}
           <span>
             {playMode === 'magic-keys'
               ? t.playModeMagic
-              : playMode === 'qwerty'
-                ? t.playModeQwerty
-                : t.playModeMagic}
+              : playMode === 'practice'
+                ? isEn
+                  ? 'Practice'
+                  : 'Luyện đàn'
+                : playMode === 'qwerty'
+                  ? t.playModeQwerty
+                  : t.playModeMagic}
           </span>
         </button>
 

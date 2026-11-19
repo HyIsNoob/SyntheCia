@@ -6,8 +6,10 @@ import { WebGLCompositor } from '../engine/WebGLCompositor';
 import { buildMagicSteps, findMagicStepIndexAtTime, type MagicStep } from '../midi/MagicKeys';
 import type {
   AspectRatioMode,
+  LyricLine,
   ParsedMidi,
   PlayMode,
+  RhythmFeedback,
   TrackOverride,
   VisualizerSettings,
 } from '../types/visualizer';
@@ -42,12 +44,14 @@ interface VisualizerStageProps {
   trackOverrides: Readonly<Record<number, TrackOverride>>;
   audioEngine: AudioEngine;
   cleanMode: boolean;
+  lyrics?: LyricLine[];
   stageRef: React.MutableRefObject<VisualizerStageHandle | null>;
   onTimeUpdate: (timeSec: number) => void;
   onSongEnded: () => void;
   onEngineReady?: (isWebGL2: boolean) => void;
   onPerfStats?: (stats: PerfStats) => void;
   onMagicProgress?: (stepIndex: number, totalSteps: number) => void;
+  onRhythmFeedback?: (fb: RhythmFeedback | null) => void;
 }
 
 function getAspectStyle(mode: AspectRatioMode): React.CSSProperties {
@@ -85,12 +89,14 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
   trackOverrides,
   audioEngine,
   cleanMode,
+  lyrics,
   stageRef,
   onTimeUpdate,
   onSongEnded,
   onEngineReady,
   onPerfStats,
   onMagicProgress,
+  onRhythmFeedback,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,9 +115,17 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
   const loopBRef = useRef(loopB);
   const settingsRef = useRef(settings);
   const trackOverridesRef = useRef(trackOverrides);
+  const lyricsRef = useRef<LyricLine[]>(lyrics ?? []);
 
   const playTimeRef = useRef(0);
   const nextNoteIdxRef = useRef(0);
+  const lastMetroBeatRef = useRef(-1);
+
+  // Wait-for-Note Practice Mode & Rhythm Combo HUD refs
+  const practiceWaitingRef = useRef<Set<number>>(new Set());
+  const practiceSatisfiedRef = useRef<Set<number>>(new Set());
+  const practiceWaitAnchorRef = useRef<number>(-1);
+  const rhythmStatsRef = useRef({ combo: 0, maxCombo: 0, scoreSum: 0, hits: 0 });
 
   // Live notes pressed via mouse, QWERTY, Web MIDI USB, or Magic Keys
   const manualNotesRef = useRef<Map<number, number>>(new Map());
@@ -131,11 +145,39 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
   const onSongEndedRef = useRef(onSongEnded);
   const onPerfStatsRef = useRef(onPerfStats);
   const onMagicProgressRef = useRef(onMagicProgress);
+  const onRhythmFeedbackRef = useRef(onRhythmFeedback);
+
+  const recordRhythmHit = (rating: 'PERFECT' | 'GREAT' | 'GOOD') => {
+    const st = rhythmStatsRef.current;
+    st.combo += 1;
+    if (st.combo > st.maxCombo) st.maxCombo = st.combo;
+    st.hits += 1;
+    st.scoreSum += rating === 'PERFECT' ? 100 : rating === 'GREAT' ? 88 : 72;
+    const accuracy = Math.round(st.scoreSum / Math.max(1, st.hits));
+    onRhythmFeedbackRef.current?.({
+      rating,
+      combo: st.combo,
+      maxCombo: st.maxCombo,
+      accuracy,
+      hits: st.hits,
+      timestamp: performance.now(),
+    });
+  };
+
+  useEffect(() => {
+    lyricsRef.current = lyrics ?? [];
+  }, [lyrics]);
 
   useEffect(() => {
     midiRef.current = midi;
     playTimeRef.current = 0;
     nextNoteIdxRef.current = 0;
+    lastMetroBeatRef.current = -1;
+    practiceWaitingRef.current.clear();
+    practiceSatisfiedRef.current.clear();
+    practiceWaitAnchorRef.current = -1;
+    rhythmStatsRef.current = { combo: 0, maxCombo: 0, scoreSum: 0, hits: 0 };
+    onRhythmFeedbackRef.current?.(null);
     magicStepsRef.current = buildMagicSteps(
       midi,
       trackOverridesRef.current,
@@ -172,6 +214,11 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     playModeRef.current = playMode;
     magicHeldByKeyRef.current.clear();
     manualNotesRef.current.clear();
+    practiceWaitingRef.current.clear();
+    practiceSatisfiedRef.current.clear();
+    practiceWaitAnchorRef.current = -1;
+    rhythmStatsRef.current = { combo: 0, maxCombo: 0, scoreSum: 0, hits: 0 };
+    onRhythmFeedbackRef.current?.(null);
     if (playMode === 'magic-keys') {
       const steps = magicStepsRef.current;
       const idx = findMagicStepIndexAtTime(steps, playTimeRef.current);
@@ -290,7 +337,8 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     onSongEndedRef.current = onSongEnded;
     onPerfStatsRef.current = onPerfStats;
     onMagicProgressRef.current = onMagicProgress;
-  }, [onTimeUpdate, onSongEnded, onPerfStats, onMagicProgress]);
+    onRhythmFeedbackRef.current = onRhythmFeedback;
+  }, [onTimeUpdate, onSongEnded, onPerfStats, onMagicProgress, onRhythmFeedback]);
 
   // Expose imperative stage controls
   useEffect(() => {
@@ -300,6 +348,10 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         const curMidi = midiRef.current;
         const clamped = curMidi ? Math.max(0, Math.min(curMidi.duration, timeSec)) : 0;
         playTimeRef.current = clamped;
+        lastMetroBeatRef.current = -1;
+        practiceWaitingRef.current.clear();
+        practiceSatisfiedRef.current.clear();
+        practiceWaitAnchorRef.current = -1;
         audioEngine.stopAllNotes();
         sceneRef.current?.resetKeyStates();
         manualNotesRef.current.clear();
@@ -344,6 +396,33 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         audioEngine.ensureInitialized();
         manualNotesRef.current.set(midiKey, velocity);
         audioEngine.playNote(midiKey, velocity, 1.35, liveSustainRef.current);
+
+        // Wait-for-Note Practice Mode: mark matching required pitch as satisfied!
+        if (playModeRef.current === 'practice' && practiceWaitingRef.current.has(midiKey)) {
+          practiceWaitingRef.current.delete(midiKey);
+          practiceSatisfiedRef.current.add(midiKey);
+          if (practiceWaitingRef.current.size === 0) {
+            recordRhythmHit('PERFECT');
+            // Advance slightly past the waited chord so playback resumes smoothly
+            playTimeRef.current += 0.024;
+            practiceWaitAnchorRef.current = -1;
+            practiceSatisfiedRef.current.clear();
+          }
+        } else if (playModeRef.current === 'qwerty' && midiRef.current && isPlayingRef.current) {
+          // Optional Rhythm Accuracy scoring during live QWERTY / USB MIDI playalong!
+          const tNow = playTimeRef.current;
+          const notes = midiRef.current.notes;
+          let bestErr = Infinity;
+          for (let i = Math.max(0, nextNoteIdxRef.current - 12); i < Math.min(notes.length, nextNoteIdxRef.current + 12); i++) {
+            if (notes[i].midi === midiKey) {
+              const err = Math.abs(notes[i].start - tNow);
+              if (err < bestErr) bestErr = err;
+            }
+          }
+          if (bestErr <= 0.18) {
+            recordRhythmHit(bestErr <= 0.065 ? 'PERFECT' : bestErr <= 0.12 ? 'GREAT' : 'GOOD');
+          }
+        }
       },
       releaseLiveNote: (midiKey: number) => {
         manualNotesRef.current.delete(midiKey);
@@ -411,6 +490,11 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
 
         onTimeUpdateRef.current(playTimeRef.current);
         onMagicProgressRef.current?.(magicStepIdxRef.current, steps.length);
+
+        // Score smooth Magic Keys rubato timing for optional Rhythm Combo HUD!
+        const rateErr = Math.abs(magicFlowRateRef.current - 1.0);
+        recordRhythmHit(rateErr < 0.28 ? 'PERFECT' : rateErr < 0.55 ? 'GREAT' : 'GOOD');
+
         return { stepIndex: magicStepIdxRef.current, totalSteps: steps.length };
       },
       triggerMagicKeyUp: (keyCode: string) => {
@@ -511,56 +595,129 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
           }
         }
       } else if (isPlayingRef.current && curMidi) {
-        const prevT = playTimeRef.current;
-        const nextT = prevT + dt * speedRef.current;
-        playTimeRef.current = nextT;
-
-        // Fire all MIDI notes whose start time was crossed in (prevT..nextT]
         const notes = curMidi.notes;
-        let idx = nextNoteIdxRef.current;
-        while (idx < notes.length && notes[idx].start <= nextT) {
-          const n = notes[idx];
-          const ov = overrides[n.trackIndex];
-          if (!ov?.muted && !ov?.hidden && n.start >= prevT - 0.08) {
-            const sustained = isSustainDownAt(curMidi, n.start);
-            audioEngine.playNote(n.midi, n.velocity, n.duration / speedRef.current, sustained);
-          }
-          idx++;
-        }
-        nextNoteIdxRef.current = idx;
+        const isPractice = playModeRef.current === 'practice';
+        const pHand = curSettings.practiceHand ?? 'both';
 
-        // Check A-B Loop first
-        const la = loopARef.current;
-        const lb = loopBRef.current;
-        if (la !== null && lb !== null && lb > la + 0.25 && nextT >= lb) {
-          playTimeRef.current = la;
-          let lo = 0;
-          let hi = notes.length;
-          while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if (notes[mid].start < la) lo = mid + 1;
-            else hi = mid;
-          }
-          nextNoteIdxRef.current = lo;
-          audioEngine.stopAllNotes();
-          audioEngine.startCustomAudio(la, curSettings.customAudioOffsetMs, speedRef.current);
-        } else if (nextT >= curMidi.duration) {
-          if (loopRef.current) {
-            playTimeRef.current = 0;
-            nextNoteIdxRef.current = 0;
-            audioEngine.stopAllNotes();
-            audioEngine.startCustomAudio(0, curSettings.customAudioOffsetMs, speedRef.current);
+        // Wait-for-Note Practice Mode: check if we are paused waiting for user to press required keys!
+        let frozenForPractice = false;
+        if (isPractice) {
+          if (practiceWaitingRef.current.size > 0) {
+            frozenForPractice = true;
           } else {
-            playTimeRef.current = curMidi.duration;
-            isPlayingRef.current = false;
-            onTimeUpdateRef.current(curMidi.duration);
-            onSongEndedRef.current();
+            // Inspect upcoming note at nextNoteIdxRef
+            let scan = nextNoteIdxRef.current;
+            while (scan < notes.length) {
+              const cand = notes[scan];
+              const ov = overrides[cand.trackIndex];
+              if (ov?.hidden || ov?.muted) {
+                scan++;
+                continue;
+              }
+              const effectiveHand = ov?.hand ?? cand.hand;
+              const requiresUser = pHand === 'both' || effectiveHand === pHand;
+              if (!requiresUser) {
+                scan++;
+                continue;
+              }
+              if (cand.start <= playTimeRef.current + dt * speedRef.current + 0.012 && cand.start > practiceWaitAnchorRef.current + 0.01) {
+                // Collect simultaneous chord notes belonging to the practiced hand (within 45ms)
+                const chordTime = cand.start;
+                const req = new Set<number>();
+                for (let j = scan; j < notes.length && notes[j].start <= chordTime + 0.045; j++) {
+                  const nj = notes[j];
+                  const ovj = overrides[nj.trackIndex];
+                  if (ovj?.hidden || ovj?.muted) continue;
+                  const h = ovj?.hand ?? nj.hand;
+                  if (pHand === 'both' || h === pHand) {
+                    if (!manualNotesRef.current.has(nj.midi) && !practiceSatisfiedRef.current.has(nj.midi)) {
+                      req.add(nj.midi);
+                    }
+                  }
+                }
+                if (req.size > 0) {
+                  playTimeRef.current = chordTime;
+                  practiceWaitingRef.current = req;
+                  practiceWaitAnchorRef.current = chordTime;
+                  frozenForPractice = true;
+                }
+              }
+              break;
+            }
           }
         }
 
-        if (now - lastUiSync > 70) {
-          lastUiSync = now;
-          onTimeUpdateRef.current(playTimeRef.current);
+        if (!frozenForPractice) {
+          const prevT = playTimeRef.current;
+          const nextT = prevT + dt * speedRef.current;
+          playTimeRef.current = nextT;
+
+          // Optional Studio Metronome tick synced to song BPM & time signature!
+          if (curSettings.metronomeEnabled && curMidi.bpm > 0) {
+            const beatSec = 60 / curMidi.bpm;
+            const curBeat = Math.floor(nextT / beatSec);
+            if (curBeat > lastMetroBeatRef.current && nextT >= 0.01) {
+              lastMetroBeatRef.current = curBeat;
+              const beatsPerBar = Math.max(1, curMidi.timeSignature[0] || 4);
+              audioEngine.playMetronomeClick(curBeat % beatsPerBar === 0);
+            }
+          }
+
+          // Fire all MIDI notes whose start time was crossed in (prevT..nextT]
+          // In Practice Mode, only auto-play the OTHER (backing) hand so the user hears their own playing!
+          let idx = nextNoteIdxRef.current;
+          while (idx < notes.length && notes[idx].start <= nextT) {
+            const n = notes[idx];
+            const ov = overrides[n.trackIndex];
+            const effectiveHand = ov?.hand ?? n.hand;
+            const skipForPractice = isPractice && (pHand === 'both' || effectiveHand === pHand);
+            if (!ov?.muted && !ov?.hidden && !skipForPractice && n.start >= prevT - 0.08) {
+              const sustained = isSustainDownAt(curMidi, n.start);
+              audioEngine.playNote(n.midi, n.velocity, n.duration / speedRef.current, sustained);
+            }
+            idx++;
+          }
+          nextNoteIdxRef.current = idx;
+
+          // Check A-B Loop first
+          const la = loopARef.current;
+          const lb = loopBRef.current;
+          if (la !== null && lb !== null && lb > la + 0.25 && nextT >= lb) {
+            playTimeRef.current = la;
+            lastMetroBeatRef.current = -1;
+            practiceWaitingRef.current.clear();
+            practiceWaitAnchorRef.current = -1;
+            let lo = 0;
+            let hi = notes.length;
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1;
+              if (notes[mid].start < la) lo = mid + 1;
+              else hi = mid;
+            }
+            nextNoteIdxRef.current = lo;
+            audioEngine.stopAllNotes();
+            audioEngine.startCustomAudio(la, curSettings.customAudioOffsetMs, speedRef.current);
+          } else if (nextT >= curMidi.duration) {
+            if (loopRef.current) {
+              playTimeRef.current = 0;
+              nextNoteIdxRef.current = 0;
+              lastMetroBeatRef.current = -1;
+              practiceWaitingRef.current.clear();
+              practiceWaitAnchorRef.current = -1;
+              audioEngine.stopAllNotes();
+              audioEngine.startCustomAudio(0, curSettings.customAudioOffsetMs, speedRef.current);
+            } else {
+              playTimeRef.current = curMidi.duration;
+              isPlayingRef.current = false;
+              onTimeUpdateRef.current(curMidi.duration);
+              onSongEndedRef.current();
+            }
+          }
+
+          if (now - lastUiSync > 70) {
+            lastUiSync = now;
+            onTimeUpdateRef.current(playTimeRef.current);
+          }
         }
       }
 
@@ -599,7 +756,9 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
         spectrumBins,
         overrides,
         sustainDown,
-        vid
+        vid,
+        lyricsRef.current,
+        practiceWaitingRef.current.size > 0 ? practiceWaitingRef.current : undefined
       );
 
       const blendedEnergy = {
@@ -683,9 +842,7 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
     if (midiKey !== null) {
       e.currentTarget.setPointerCapture(e.pointerId);
       pointerDownKeyRef.current = midiKey;
-      manualNotesRef.current.set(midiKey, 0.88);
-      audioEngine.ensureInitialized();
-      audioEngine.playNote(midiKey, 0.88, 1.2, liveSustainRef.current);
+      stageRef.current?.pressLiveNote(midiKey, 0.88);
     }
   };
 

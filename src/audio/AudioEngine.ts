@@ -1,4 +1,4 @@
-import type { AudioMode } from '../types/visualizer';
+import type { AudioMode, InstrumentPreset } from '../types/visualizer';
 
 export interface AudioEnergy {
   bass: number; // 0..1
@@ -90,6 +90,8 @@ export class AudioEngine {
 
   private activeVoices: ActiveVoice[] = [];
   private mode: AudioMode = 'salamander';
+  private instrument: InstrumentPreset = 'grand';
+  private transposeSemitones = 0;
   private volume = 0.82;
   private reverbMix = 0.36;
   private smoothedEnergy: AudioEnergy = { bass: 0, mid: 0, treble: 0, overall: 0 };
@@ -204,6 +206,39 @@ export class AudioEngine {
     }
   }
 
+  public setInstrument(preset: InstrumentPreset): void {
+    this.instrument = preset;
+  }
+
+  public setTranspose(semitones: number): void {
+    this.transposeSemitones = Math.max(-12, Math.min(12, Math.round(semitones)));
+  }
+
+  /**
+   * Crisp studio woodblock/bell metronome tick routed cleanly into master bus.
+   */
+  public playMetronomeClick(accent: boolean): void {
+    const ctx = this.ensureInitialized();
+    if (!this.dryGain) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(accent ? 1320 : 880, now);
+    osc.frequency.exponentialRampToValueAtTime(accent ? 660 : 440, now + 0.038);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(accent ? 0.24 : 0.14, now + 0.002);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    osc.connect(env);
+    env.connect(this.dryGain);
+    osc.start(now);
+    osc.stop(now + 0.065);
+    osc.onended = () => {
+      osc.disconnect();
+      env.disconnect();
+    };
+  }
+
   public async preloadSalamanderSamples(): Promise<void> {
     if (this.sampleLoadPromise) return this.sampleLoadPromise;
     const ctx = this.ensureInitialized();
@@ -313,20 +348,41 @@ export class AudioEngine {
       oldest?.stop(0.04);
     }
 
+    const shiftedMidi = Math.max(12, Math.min(115, midi + this.transposeSemitones));
     const now = ctx.currentTime;
     const holdDur = sustained ? Math.max(durationSec, 1.85) : Math.max(0.08, durationSec);
     const releaseDur = sustained ? 1.35 : 0.42;
 
     // Gentle stereo image across the 88-key soundboard (low left, high right)
     const panner = ctx.createStereoPanner();
-    panner.pan.value = Math.max(-0.65, Math.min(0.65, ((midi - 60) / 44) * 0.55));
+    panner.pan.value = Math.max(-0.65, Math.min(0.65, ((shiftedMidi - 60) / 44) * 0.55));
     panner.connect(this.dryGain);
     panner.connect(this.convolver);
 
-    if (this.mode === 'salamander' && this.samples.size > 0) {
-      this.triggerSampleVoice(ctx, panner, midi, velocity, now, holdDur, releaseDur);
+    if (this.instrument === 'rhodes') {
+      this.triggerRhodesVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur);
+    } else if (this.instrument === 'musicbox') {
+      this.triggerMusicBoxVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur);
+    } else if (this.instrument === 'felt') {
+      if (this.mode === 'salamander' && this.samples.size > 0) {
+        this.triggerSampleVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur * 1.15, true);
+      } else {
+        this.triggerSynthVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur * 1.15, true);
+      }
+    } else if (this.instrument === 'strings') {
+      if (this.mode === 'salamander' && this.samples.size > 0) {
+        this.triggerSampleVoice(ctx, panner, shiftedMidi, velocity * 0.88, now, holdDur, releaseDur, false);
+      } else {
+        this.triggerSynthVoice(ctx, panner, shiftedMidi, velocity * 0.88, now, holdDur, releaseDur, false);
+      }
+      this.triggerStringsPadVoice(ctx, panner, shiftedMidi, velocity * 0.55, now, holdDur, releaseDur + 0.85);
     } else {
-      this.triggerSynthVoice(ctx, panner, midi, velocity, now, holdDur, releaseDur);
+      // Concert Grand (default)
+      if (this.mode === 'salamander' && this.samples.size > 0) {
+        this.triggerSampleVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur, false);
+      } else {
+        this.triggerSynthVoice(ctx, panner, shiftedMidi, velocity, now, holdDur, releaseDur, false);
+      }
     }
   }
 
@@ -352,11 +408,12 @@ export class AudioEngine {
     velocity: number,
     now: number,
     holdDur: number,
-    releaseDur: number
+    releaseDur: number,
+    isFelt = false
   ): void {
     const nearest = this.findNearestSample(midi);
     if (!nearest) {
-      this.triggerSynthVoice(ctx, dest, midi, velocity, now, holdDur, releaseDur);
+      this.triggerSynthVoice(ctx, dest, midi, velocity, now, holdDur, releaseDur, isFelt);
       return;
     }
 
@@ -364,15 +421,19 @@ export class AudioEngine {
     src.buffer = nearest.buffer;
     src.playbackRate.value = Math.pow(2, (midi - nearest.sampleMidi) / 12);
 
-    // Subtle velocity-sensitive brightness filter
+    // Subtle velocity-sensitive brightness filter (warm felt piano uses mellow intimate roll-off!)
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 1800 + Math.pow(velocity, 1.25) * 14500;
+    filter.Q.value = isFelt ? 0.65 : 0.9;
+    filter.frequency.value = isFelt
+      ? 520 + Math.pow(velocity, 1.35) * 2350
+      : 1800 + Math.pow(velocity, 1.25) * 14500;
 
     const env = ctx.createGain();
-    const peakGain = Math.pow(velocity, 1.35) * 0.92;
+    const peakGain = Math.pow(velocity, 1.35) * (isFelt ? 0.86 : 0.92);
+    const attackSec = isFelt ? 0.022 : 0.006;
     env.gain.setValueAtTime(0.0001, now);
-    env.gain.linearRampToValueAtTime(peakGain, now + 0.006);
+    env.gain.linearRampToValueAtTime(peakGain, now + attackSec);
     env.gain.setValueAtTime(peakGain, now + holdDur);
     env.gain.exponentialRampToValueAtTime(0.0001, now + holdDur + releaseDur);
 
@@ -420,19 +481,22 @@ export class AudioEngine {
     velocity: number,
     now: number,
     holdDur: number,
-    releaseDur: number
+    releaseDur: number,
+    isFelt = false
   ): void {
     const freq = midiToFreq(midi);
     const env = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
     filter.type = 'lowpass';
-    const brightness = 650 + Math.pow(velocity, 1.3) * Math.min(7200, freq * 7.5);
+    const brightness = isFelt
+      ? 380 + Math.pow(velocity, 1.3) * Math.min(2200, freq * 3.1)
+      : 650 + Math.pow(velocity, 1.3) * Math.min(7200, freq * 7.5);
     filter.frequency.setValueAtTime(brightness, now);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(240, freq * 1.9), now + holdDur + 0.5);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(180, freq * (isFelt ? 1.3 : 1.9)), now + holdDur + 0.5);
 
     const osc1 = ctx.createOscillator();
-    osc1.type = 'triangle';
+    osc1.type = isFelt ? 'sine' : 'triangle';
     osc1.frequency.value = freq;
 
     const osc2 = ctx.createOscillator();
@@ -440,22 +504,22 @@ export class AudioEngine {
     osc2.frequency.value = freq * 2.0012; // subtle piano string inharmonicity
 
     const osc3 = ctx.createOscillator();
-    osc3.type = 'sawtooth';
+    osc3.type = isFelt ? 'triangle' : 'sawtooth';
     osc3.frequency.value = freq * 1.0006;
 
     const g1 = ctx.createGain();
-    g1.gain.value = 0.65;
+    g1.gain.value = isFelt ? 0.78 : 0.65;
     const g2 = ctx.createGain();
-    g2.gain.value = 0.24 * velocity;
+    g2.gain.value = (isFelt ? 0.12 : 0.24) * velocity;
     const g3 = ctx.createGain();
-    g3.gain.value = 0.14 * velocity;
+    g3.gain.value = (isFelt ? 0.08 : 0.14) * velocity;
 
     const peakGain = Math.pow(velocity, 1.3) * 0.42;
     const naturalDecay = Math.max(0.8, 3.8 - (midi - 21) * 0.032);
     const totalDur = Math.min(holdDur + releaseDur, naturalDecay + 1.2);
 
     env.gain.setValueAtTime(0.0001, now);
-    env.gain.linearRampToValueAtTime(peakGain, now + 0.005);
+    env.gain.linearRampToValueAtTime(peakGain, now + (isFelt ? 0.018 : 0.005));
     env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peakGain * 0.32), now + Math.min(holdDur, naturalDecay * 0.55));
     env.gain.exponentialRampToValueAtTime(0.0001, now + totalDur);
 
@@ -504,6 +568,258 @@ export class AudioEngine {
       osc1.disconnect();
       osc2.disconnect();
       osc3.disconnect();
+      filter.disconnect();
+      env.disconnect();
+    };
+  }
+
+  /**
+   * Warm Classic Electric Rhodes EP: sine body + FM bell-tine transient + subtle vibrato.
+   */
+  private triggerRhodesVoice(
+    ctx: AudioContext,
+    dest: AudioNode,
+    midi: number,
+    velocity: number,
+    now: number,
+    holdDur: number,
+    releaseDur: number
+  ): void {
+    const freq = midiToFreq(midi);
+    const carrier = ctx.createOscillator();
+    carrier.type = 'sine';
+    carrier.frequency.value = freq;
+
+    const tine = ctx.createOscillator();
+    tine.type = 'sine';
+    tine.frequency.value = freq * 7.0; // signature Rhodes metallic tine chime
+
+    const tineGain = ctx.createGain();
+    const modDepth = freq * (0.35 + velocity * 1.1);
+    tineGain.gain.setValueAtTime(modDepth, now);
+    tineGain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+
+    const warm2 = ctx.createOscillator();
+    warm2.type = 'triangle';
+    warm2.frequency.value = freq * 2.001;
+    const warm2Gain = ctx.createGain();
+    warm2Gain.gain.setValueAtTime(0.14 * velocity, now);
+    warm2Gain.gain.exponentialRampToValueAtTime(0.001, now + Math.min(holdDur + 0.35, 1.5));
+
+    const env = ctx.createGain();
+    const peak = Math.pow(velocity, 1.25) * 0.44;
+    const totalDur = Math.min(holdDur + releaseDur, 4.2);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(peak, now + 0.006);
+    env.gain.exponentialRampToValueAtTime(Math.max(0.0008, peak * 0.42), now + Math.min(holdDur, 1.4));
+    env.gain.exponentialRampToValueAtTime(0.0001, now + totalDur);
+
+    tine.connect(tineGain);
+    tineGain.connect(carrier.frequency);
+    carrier.connect(env);
+    warm2.connect(warm2Gain);
+    warm2Gain.connect(env);
+    env.connect(dest);
+
+    carrier.start(now);
+    tine.start(now);
+    warm2.start(now);
+    const stopAt = now + totalDur + 0.04;
+    carrier.stop(stopAt);
+    tine.stop(stopAt);
+    warm2.stop(stopAt);
+
+    let stopped = false;
+    const voice: ActiveVoice = {
+      midi,
+      stop: (fadeSec = 0.06) => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          const t = ctx.currentTime;
+          env.gain.cancelScheduledValues(t);
+          env.gain.setValueAtTime(Math.max(0.0001, env.gain.value), t);
+          env.gain.exponentialRampToValueAtTime(0.0001, t + fadeSec);
+          carrier.stop(t + fadeSec + 0.02);
+          tine.stop(t + fadeSec + 0.02);
+          warm2.stop(t + fadeSec + 0.02);
+        } catch {
+          // ignore
+        }
+      },
+    };
+    this.activeVoices.push(voice);
+    carrier.onended = () => {
+      stopped = true;
+      const idx = this.activeVoices.indexOf(voice);
+      if (idx !== -1) this.activeVoices.splice(idx, 1);
+      carrier.disconnect();
+      tine.disconnect();
+      tineGain.disconnect();
+      warm2.disconnect();
+      warm2Gain.disconnect();
+      env.disconnect();
+    };
+  }
+
+  /**
+   * Crystalline Celesta / Music Box: pure shimmering high partials with magical bell decay.
+   */
+  private triggerMusicBoxVoice(
+    ctx: AudioContext,
+    dest: AudioNode,
+    midi: number,
+    velocity: number,
+    now: number,
+    holdDur: number,
+    releaseDur: number
+  ): void {
+    const freq = midiToFreq(Math.min(108, midi + 12)); // music box sits an octave higher cleanly
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.value = freq;
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = freq * 2.996;
+
+    const osc3 = ctx.createOscillator();
+    osc3.type = 'sine';
+    osc3.frequency.value = freq * 5.42; // delicate metallic music-box sparkle
+
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.22 * velocity, now);
+    g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+
+    const g3 = ctx.createGain();
+    g3.gain.setValueAtTime(0.11 * velocity, now);
+    g3.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+
+    const env = ctx.createGain();
+    const peak = Math.pow(velocity, 1.2) * 0.34;
+    const totalDur = Math.min(Math.max(1.1, holdDur + releaseDur), 2.8);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(peak, now + 0.003);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + totalDur);
+
+    osc1.connect(env);
+    osc2.connect(g2);
+    g2.connect(env);
+    osc3.connect(g3);
+    g3.connect(env);
+    env.connect(dest);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc3.start(now);
+    const stopAt = now + totalDur + 0.04;
+    osc1.stop(stopAt);
+    osc2.stop(stopAt);
+    osc3.stop(stopAt);
+
+    let stopped = false;
+    const voice: ActiveVoice = {
+      midi,
+      stop: (fadeSec = 0.06) => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          const t = ctx.currentTime;
+          env.gain.cancelScheduledValues(t);
+          env.gain.setValueAtTime(Math.max(0.0001, env.gain.value), t);
+          env.gain.exponentialRampToValueAtTime(0.0001, t + fadeSec);
+          osc1.stop(t + fadeSec + 0.02);
+          osc2.stop(t + fadeSec + 0.02);
+          osc3.stop(t + fadeSec + 0.02);
+        } catch {
+          // ignore
+        }
+      },
+    };
+    this.activeVoices.push(voice);
+    osc1.onended = () => {
+      stopped = true;
+      const idx = this.activeVoices.indexOf(voice);
+      if (idx !== -1) this.activeVoices.splice(idx, 1);
+      osc1.disconnect();
+      osc2.disconnect();
+      osc3.disconnect();
+      g2.disconnect();
+      g3.disconnect();
+      env.disconnect();
+    };
+  }
+
+  /**
+   * Lush Cinematic Orchestral Strings Pad layered softly underneath Concert Grand!
+   */
+  private triggerStringsPadVoice(
+    ctx: AudioContext,
+    dest: AudioNode,
+    midi: number,
+    velocity: number,
+    now: number,
+    holdDur: number,
+    releaseDur: number
+  ): void {
+    const freq = midiToFreq(midi);
+    const oscA = ctx.createOscillator();
+    oscA.type = 'sawtooth';
+    oscA.frequency.value = freq * 0.9965;
+
+    const oscB = ctx.createOscillator();
+    oscB.type = 'sawtooth';
+    oscB.frequency.value = freq * 1.0035;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.7;
+    filter.frequency.setValueAtTime(600, now);
+    filter.frequency.linearRampToValueAtTime(Math.min(3400, freq * 4.5 + 900), now + 0.35);
+
+    const env = ctx.createGain();
+    const peak = Math.pow(velocity, 1.35) * 0.14;
+    const totalDur = Math.min(holdDur + releaseDur, 4.8);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(peak, now + Math.min(0.28, totalDur * 0.35));
+    env.gain.exponentialRampToValueAtTime(0.0001, now + totalDur);
+
+    oscA.connect(filter);
+    oscB.connect(filter);
+    filter.connect(env);
+    env.connect(dest);
+
+    oscA.start(now);
+    oscB.start(now);
+    const stopAt = now + totalDur + 0.04;
+    oscA.stop(stopAt);
+    oscB.stop(stopAt);
+
+    let stopped = false;
+    const voice: ActiveVoice = {
+      midi,
+      stop: (fadeSec = 0.08) => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          const t = ctx.currentTime;
+          env.gain.cancelScheduledValues(t);
+          env.gain.setValueAtTime(Math.max(0.0001, env.gain.value), t);
+          env.gain.exponentialRampToValueAtTime(0.0001, t + fadeSec);
+          oscA.stop(t + fadeSec + 0.02);
+          oscB.stop(t + fadeSec + 0.02);
+        } catch {
+          // ignore
+        }
+      },
+    };
+    this.activeVoices.push(voice);
+    oscA.onended = () => {
+      stopped = true;
+      const idx = this.activeVoices.indexOf(voice);
+      if (idx !== -1) this.activeVoices.splice(idx, 1);
+      oscA.disconnect();
+      oscB.disconnect();
       filter.disconnect();
       env.disconnect();
     };

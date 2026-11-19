@@ -21,25 +21,26 @@
   - **Sakura Petals**: Spinning glowing cherry blossom petals drifting on a breeze
   - **Glacier Frost**: Rotating 6-point ice crystal snowflakes
 - **Concert Stage Visuals**:
-  - **2D Classic** & **3D Perspective Highway** with multi-tempo measure bars & real-time chord detection (`Cmaj7`, `F#`, `B7`…)
-  - **Smooth Liquid Plasma Edge** & optional **Harmonic Bezier Chord Arcs** + **Bass Camera Punch**
+  - **2D Classic** & **3D Perspective Highway** with **Dynamic 3D Camera Drift**, multi-tempo measure bars & real-time chord detection (`Cmaj7`, `F#`, `B7`…)
+  - **3D Velocity-Scaled Piano Key Depression** with adjacent side-shadows, crimson keybed felt, **Smooth Liquid Plasma Edge** & optional **Harmonic Bezier Chord Arcs**
   - **Live Audio EQ Spectrum**, **Glossy Piano Keybed Mirror Reflection**, **Anamorphic Horizontal Strike Flares**, and **Sustain Pedal (CC64) Resonance Aura**
-- **Audio → MIDI Auto-Transcriber (100% Client-Side)**:
-  - Drop or upload any normal song (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`) to automatically transcribe polyphonic falling piano notes right in the browser — synced with the original audio track and exportable as a standard `.mid` file!
+  - **Luminous On-Canvas Lyrics (`.lrc` / `.srt`)** rendered directly into the WebGL2 canvas (included in Clean Mode & 60fps video exports!)
+- **Audio → MIDI Pro Transcriber (Web Worker + HPSS Drum Filter)**:
+  - Drop or upload any normal song (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`) to auto-transcribe polyphonic falling piano notes off-thread with **HPSS drum/percussion filtering**, smart dynamic Left/Right hand split, instant **Re-Transcribe**, original-audio sync, and standard `.mid` export!
 - **Custom Image & Video / Overhead Real-Hands Overlay (`.mp4 / .webm`)**:
   - Use looping videos or cached-blur images as backdrops, **OR** overlay your own **overhead piano footage of real hands** with Y-alignment, Zoom, Top Feather Mask, MIDI sync offset (`±3000ms`), and optional synthetic keyboard hide — Rousseau / SeeMusic Pro style right in the browser!
 - **Cinematic Title Intro Card & Channel Watermark**: Baked directly into the WebGL2 canvas so OBS & exported 60fps videos come ready for YouTube/TikTok.
-- **3 Interactive Performance Modes**:
+- **4 Interactive Performance & Practice Modes + Rhythm Combo HUD**:
   - **Magic Keys ("Giả bấm") with Adaptive Rubato Glide**: Load any MIDI (or transcribed audio) and tap **any** key on your keyboard — every tap performs the exact next chord with tempo-adaptive silky flow, configurable smoothness, and humanized chord micro-strum!
+  - **Wait-for-Note Practice Mode**: Pauses automatically at each chord until you play the glowing amber keys on USB MIDI, QWERTY, or screen — choose **Both Hands**, **Right Hand Only**, or **Left Hand Only** (with backing hand auto-played!).
   - **QWERTY Live Piano**: Play 2+ octaves right on your computer keyboard (`Z–M` & `Q–P`, `[ / ]` octave shift, `Shift` sustain pedal).
-  - **Web MIDI API (USB Piano)**: Plug in any real MIDI keyboard/digital piano for ultra-low-latency live performance & recording.
-- **Studio Audio & MIDI Track Manager**:
-  - Real sampled **Salamander Grand Piano** + **100% Offline Studio Synth** fallback + **Custom Sync Audio (`.mp3` / `.wav`)** with `±2000ms` offset
-  - Per-track **Mute, Hide, Custom Color, and Left/Right Hand** controls + **A-B Loop**
+  - **Web MIDI API (USB Piano)** + optional **Rhythm Accuracy & Combo HUD** (`PERFECT / GREAT / GOOD`).
+- **5 Studio Instruments, Transpose & Metronome**:
+  - Switch live between **Concert Grand (Salamander)**, **Warm Felt Piano**, **Electric Rhodes EP**, **Music Box / Celesta**, and **Grand + Orchestral Strings Pad**, plus real-time **Transpose (`±12 st`)**, **Studio Metronome**, **Custom Sync Audio (`.mp3` / `.wav`)**, per-track **Mute/Hide/Color/Hand**, and **A-B Loop**.
 - **Clean Video Mode & Direct 60fps Video Exporter**:
   - Press `V` for 100% zero-UI, cursor-hidden capture (OBS-ready) with `Full`, `16:9`, `9:16 TikTok/Shorts`, and `1:1` framing
   - Press `R` to record & download 60fps WebM/MP4 video with synced stereo audio directly from the WebGL2 canvas
-- **Open-Source Ready & Browser Persistence**: Bilingual **English / Tiếng Việt** UI, auto-saved settings (`localStorage`) + persistent custom backdrop & MIDI cache (`IndexedDB`), **JSON Preset Export/Import**, optional FPS telemetry, and `O(log N)` binary-search note windowing for massive MIDI files.
+- **Multi-Song Library, Shareable Preset Links & Installable PWA**: Bilingual **English / Tiếng Việt** UI, auto-saved settings (`localStorage`), multi-song **Saved Library** & backdrop cache (`IndexedDB`), **1-click Shareable Preset URL (`#preset=...`)**, **JSON Preset Export/Import**, and installable desktop/mobile PWA support.
 
 ---
 

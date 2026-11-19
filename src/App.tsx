@@ -1,26 +1,41 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioEngine, type SampleLoadState } from './audio/AudioEngine';
-import { exportParsedMidiToBlob, transcribeAudioFileToMidi } from './audio/AudioToMidi';
+import {
+  exportParsedMidiToBlob,
+  transcribeAudioFileToMidi,
+  transcribeMonoPcmViaWorker,
+  type DecodedMonoAudio,
+} from './audio/AudioToMidi';
 import { getTranslations } from './i18n/translations';
 import { DEMO_SONGS } from './midi/DemoSongs';
+import { parseLyricsText } from './midi/LyricsParser';
 import { parseMidiBuffer } from './midi/MidiParser';
 import { isMagicTriggerKey, qwertyCodeToMidi } from './midi/QwertyPiano';
 import { WebMidiController, type MidiDeviceInfo } from './midi/WebMidiInput';
 import {
   clearAllStoredState,
+  decodePresetFromHash,
   deleteMediaBlob,
+  deleteSavedSong,
+  encodePresetToHash,
+  listSavedSongs,
   loadMediaBlob,
   loadPersistedMeta,
   loadPersistedSettings,
+  loadSavedSongBlob,
   saveMediaBlob,
   savePersistedMeta,
   savePersistedSettings,
+  saveSongToLibrary,
+  type SavedSongMeta,
 } from './storage/SettingsStorage';
 import {
   DEFAULT_SETTINGS,
   VISUAL_PRESETS,
+  type LyricLine,
   type ParsedMidi,
   type PlayMode,
+  type RhythmFeedback,
   type TrackOverride,
   type VisualizerSettings,
 } from './types/visualizer';
@@ -41,11 +56,22 @@ export const App: React.FC = () => {
   const stageRef = useRef<VisualizerStageHandle | null>(null);
   const initialMeta = useMemo(() => loadPersistedMeta(), []);
 
-  const [settings, setSettings] = useState<VisualizerSettings>(loadPersistedSettings);
+  const [settings, setSettings] = useState<VisualizerSettings>(() => {
+    const base = loadPersistedSettings();
+    const shared = typeof window !== 'undefined' ? decodePresetFromHash(window.location.hash) : null;
+    return shared ? { ...base, ...shared } : base;
+  });
   const [activePresetId, setActivePresetId] = useState<string | null>(initialMeta.activePresetId);
   const [activeDemoId, setActiveDemoId] = useState<string | null>(DEMO_SONGS[0].id);
+  const [savedSongs, setSavedSongs] = useState<SavedSongMeta[]>([]);
+  const [activeLibrarySongId, setActiveLibrarySongId] = useState<string | null>(null);
   const [midi, setMidi] = useState<ParsedMidi | null>(() => DEMO_SONGS[0].build());
   const [trackOverrides, setTrackOverrides] = useState<Record<number, TrackOverride>>({});
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [lyricsName, setLyricsName] = useState<string | null>(null);
+  const [rhythmFeedback, setRhythmFeedback] = useState<RhythmFeedback | null>(null);
+  const decodedAudioCacheRef = useRef<DecodedMonoAudio | null>(null);
+  const [canRetranscribe, setCanRetranscribe] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playMode, setPlayMode] = useState<PlayMode>('auto');
@@ -108,10 +134,13 @@ export const App: React.FC = () => {
     });
   }, [activePresetId, playbackSpeed, loopEnabled, activeDemoId, midi?.name]);
 
-  // Hydrate persisted Custom Background Image & Last Custom MIDI from IndexedDB on startup!
+  // Hydrate persisted Custom Background Image, Saved Songs Library & Last Custom MIDI from IndexedDB on startup!
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const library = await listSavedSongs();
+      if (!cancelled) setSavedSongs(library);
+
       const savedBg = await loadMediaBlob('customBg');
       if (!cancelled && savedBg) {
         const bgUrl = URL.createObjectURL(savedBg);
@@ -172,6 +201,14 @@ export const App: React.FC = () => {
   useEffect(() => {
     audioEngine.setReverbMix(settings.reverbMix);
   }, [audioEngine, settings.reverbMix]);
+
+  useEffect(() => {
+    audioEngine.setInstrument(settings.instrument);
+  }, [audioEngine, settings.instrument]);
+
+  useEffect(() => {
+    audioEngine.setTranspose(settings.transposeSemitones);
+  }, [audioEngine, settings.transposeSemitones]);
 
   // Recording elapsed timer
   useEffect(() => {
@@ -269,6 +306,93 @@ export const App: React.FC = () => {
     [settings.language, showToast]
   );
 
+  const handleSharePresetUrl = useCallback(async () => {
+    try {
+      const hash = encodePresetToHash(settings);
+      const url = `${window.location.origin}${window.location.pathname}${hash}`;
+      window.history.replaceState(null, '', hash);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      }
+      showToast(
+        settings.language === 'en'
+          ? 'Preset link copied! Anyone opening it gets your exact visual setup.'
+          : 'Đã sao chép link Preset! Ai mở link cũng nhận y hệt cài đặt giao diện của bạn.',
+        3600
+      );
+    } catch {
+      showToast(settings.language === 'en' ? 'Updated URL hash with preset.' : 'Đã cập nhật link Preset trên thanh địa chỉ.');
+    }
+  }, [settings, showToast]);
+
+  const handleSelectSavedSong = useCallback(
+    async (songId: string) => {
+      const rec = await loadSavedSongBlob(songId);
+      if (!rec) return;
+      try {
+        const buf = await rec.blob.arrayBuffer();
+        const parsed = parseMidiBuffer(buf, rec.name);
+        audioEngine.stopAllNotes();
+        setIsPlaying(false);
+        setActiveDemoId(null);
+        setActiveLibrarySongId(songId);
+        setTrackOverrides({});
+        setLoopA(null);
+        setLoopB(null);
+        setMidi(parsed);
+        setCurrentTime(0);
+        void saveMediaBlob('customMidi', rec.blob);
+        showToast(`${parsed.name} (${parsed.notes.length} ${t.notesUnit})`);
+      } catch {
+        showToast(settings.language === 'en' ? 'Could not load saved song.' : 'Không thể mở bài hát đã lưu.');
+      }
+    },
+    [audioEngine, settings.language, showToast, t.notesUnit]
+  );
+
+  const handleDeleteSavedSong = useCallback(
+    async (songId: string) => {
+      await deleteSavedSong(songId);
+      setSavedSongs((prev) => prev.filter((s) => s.id !== songId));
+      if (activeLibrarySongId === songId) setActiveLibrarySongId(null);
+    },
+    [activeLibrarySongId]
+  );
+
+  const handleUploadLyrics = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const parsed = parseLyricsText(text);
+        if (parsed.length === 0) {
+          showToast(
+            settings.language === 'en'
+              ? 'No timed lyrics found in this file (.lrc / .srt).'
+              : 'Không tìm thấy dòng lời có mốc thời gian (.lrc / .srt).',
+            3200
+          );
+          return;
+        }
+        setLyrics(parsed);
+        setLyricsName(file.name);
+        setSettings((prev) => ({ ...prev, showLyrics: true }));
+        showToast(
+          settings.language === 'en'
+            ? `Loaded ${parsed.length} lyric lines from "${file.name}"`
+            : `Đã nạp ${parsed.length} dòng lời bài hát từ "${file.name}"`
+        );
+      } catch {
+        showToast('Could not read lyrics file.');
+      }
+    },
+    [settings.language, showToast]
+  );
+
+  const handleClearLyrics = useCallback(() => {
+    setLyrics([]);
+    setLyricsName(null);
+  }, []);
+
   const handleSelectDemo = useCallback(
     (demoId: string) => {
       const demo = DEMO_SONGS.find((d) => d.id === demoId);
@@ -276,6 +400,7 @@ export const App: React.FC = () => {
       audioEngine.stopAllNotes();
       setIsPlaying(false);
       setActiveDemoId(demo.id);
+      setActiveLibrarySongId(null);
       setTrackOverrides({});
       setLoopA(null);
       setLoopB(null);
@@ -295,23 +420,27 @@ export const App: React.FC = () => {
         setTranscribeProgress(2);
         showToast(
           settings.language === 'en'
-            ? `Analyzing "${file.name}" into 88-key MIDI...`
-            : `Đang phân tích "${file.name}" thành nốt MIDI...`,
+            ? `Analyzing "${file.name}" in background worker...`
+            : `Đang phân tích "${file.name}" chạy nền thành nốt MIDI...`,
           4000
         );
 
-        const parsed = await transcribeAudioFileToMidi(file, {
+        const { parsed, decoded } = await transcribeAudioFileToMidi(file, {
           sensitivity: settings.transcriptionSensitivity,
+          filterDrums: settings.filterDrums,
           onProgress: (pct) => setTranscribeProgress(pct),
         });
 
+        decodedAudioCacheRef.current = decoded;
+        setCanRetranscribe(true);
         setTranscribeProgress(null);
+
         if (parsed.notes.length === 0) {
           showToast(
             settings.language === 'en'
-              ? 'No pitched notes detected — try "Dense" sensitivity.'
-              : 'Không phát hiện đủ nốt nhạc — hãy thử mức nhạy "Dày hợp âm".',
-            4000
+              ? 'No pitched notes detected — try "Dense" sensitivity or toggle Drum Filter.'
+              : 'Không phát hiện đủ nốt nhạc — hãy thử mức nhạy "Dày hợp âm" hoặc tắt lọc trống.',
+            4200
           );
           return;
         }
@@ -328,8 +457,14 @@ export const App: React.FC = () => {
         setMidi(parsed);
         setCurrentTime(0);
 
-        // Persist transcribed MIDI to IndexedDB so refresh keeps it!
-        void saveMediaBlob('customMidi', exportParsedMidiToBlob(parsed));
+        // Persist transcribed MIDI to IndexedDB + Saved Songs Library!
+        const midiBlob = exportParsedMidiToBlob(parsed);
+        void saveMediaBlob('customMidi', midiBlob);
+        const saved = await saveSongToLibrary(parsed.name, midiBlob, parsed.notes.length, parsed.duration);
+        if (saved) {
+          setActiveLibrarySongId(saved.id);
+          setSavedSongs(await listSavedSongs());
+        }
 
         showToast(
           settings.language === 'en'
@@ -347,8 +482,49 @@ export const App: React.FC = () => {
         );
       }
     },
-    [audioEngine, settings.language, settings.transcriptionSensitivity, showToast]
+    [audioEngine, settings.filterDrums, settings.language, settings.transcriptionSensitivity, showToast]
   );
+
+  const handleRetranscribeAudio = useCallback(async () => {
+    const cached = decodedAudioCacheRef.current;
+    if (!cached) return;
+    try {
+      audioEngine.stopAllNotes();
+      setIsPlaying(false);
+      setTranscribeProgress(8);
+      const parsed = await transcribeMonoPcmViaWorker(cached, {
+        sensitivity: settings.transcriptionSensitivity,
+        filterDrums: settings.filterDrums,
+        onProgress: (pct) => setTranscribeProgress(pct),
+      });
+      setTranscribeProgress(null);
+      if (parsed.notes.length === 0) {
+        showToast(
+          settings.language === 'en'
+            ? 'No pitched notes detected with these settings.'
+            : 'Không phát hiện đủ nốt với mức nhạy này.'
+        );
+        return;
+      }
+      setTrackOverrides({});
+      setMidi(parsed);
+      setCurrentTime(0);
+      const midiBlob = exportParsedMidiToBlob(parsed);
+      void saveMediaBlob('customMidi', midiBlob);
+      const saved = await saveSongToLibrary(parsed.name, midiBlob, parsed.notes.length, parsed.duration);
+      if (saved) {
+        setActiveLibrarySongId(saved.id);
+        setSavedSongs(await listSavedSongs());
+      }
+      showToast(
+        settings.language === 'en'
+          ? `Re-transcribed: ${parsed.notes.length} notes (~${parsed.bpm} BPM)`
+          : `Đã phân tích lại: ${parsed.notes.length} nốt (~${parsed.bpm} BPM)`
+      );
+    } catch {
+      setTranscribeProgress(null);
+    }
+  }, [audioEngine, settings.filterDrums, settings.language, settings.transcriptionSensitivity, showToast]);
 
   const handleExportCurrentMidi = useCallback(() => {
     if (!midi) return;
@@ -371,6 +547,8 @@ export const App: React.FC = () => {
     });
     setActivePresetId('rainbow-neon-3d');
     setActiveDemoId(DEMO_SONGS[0].id);
+    setActiveLibrarySongId(null);
+    setSavedSongs([]);
     setMidi(DEMO_SONGS[0].build());
     showToast(
       settings.language === 'en'
@@ -413,6 +591,11 @@ export const App: React.FC = () => {
         setMidi(parsed);
         setCurrentTime(0);
         void saveMediaBlob('customMidi', file);
+        const saved = await saveSongToLibrary(parsed.name, file, parsed.notes.length, parsed.duration);
+        if (saved) {
+          setActiveLibrarySongId(saved.id);
+          setSavedSongs(await listSavedSongs());
+        }
         showToast(`${parsed.name} (${parsed.notes.length} ${t.notesUnit} • ${parsed.bpm} BPM)`);
       } catch {
         showToast(
@@ -440,6 +623,15 @@ export const App: React.FC = () => {
         setIsPlaying(false);
         audioEngine.ensureInitialized();
         showToast(t.magicHint, 4200);
+      } else if (mode === 'practice') {
+        audioEngine.ensureInitialized();
+        setIsPlaying(true);
+        showToast(
+          settings.language === 'en'
+            ? 'Wait-for-Note Practice — Play the glowing amber keys on USB MIDI, QWERTY, or screen!'
+            : 'Chế độ Luyện đàn — Bấm đúng các phím sáng vàng trên đàn USB, bàn phím hoặc màn hình!',
+          4200
+        );
       } else if (mode === 'qwerty') {
         setIsPlaying(false);
         audioEngine.ensureInitialized();
@@ -727,8 +919,8 @@ export const App: React.FC = () => {
         return;
       }
 
-      // 2. QWERTY PIANO MODE: Play live notes across 2+ octaves on computer keyboard!
-      if (playMode === 'qwerty') {
+      // 2. QWERTY PIANO & WAIT-FOR-NOTE PRACTICE: Play live notes across 2+ octaves on computer keyboard!
+      if (playMode === 'qwerty' || playMode === 'practice') {
         if (e.code === 'BracketLeft') {
           e.preventDefault();
           setQwertyOctaveShift((s) => Math.max(-2, s - 1));
@@ -821,6 +1013,8 @@ export const App: React.FC = () => {
       void handleUploadMidi(file);
     } else if (lower.endsWith('.json')) {
       void handleImportPresetJson(file);
+    } else if (lower.endsWith('.lrc') || lower.endsWith('.srt')) {
+      void handleUploadLyrics(file);
     } else if (file.type.startsWith('image/')) {
       handleUploadBackground(file);
     } else if (file.type.startsWith('video/') || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) {
@@ -855,12 +1049,14 @@ export const App: React.FC = () => {
         trackOverrides={trackOverrides}
         audioEngine={audioEngine}
         cleanMode={cleanMode}
+        lyrics={lyrics}
         stageRef={stageRef}
         onTimeUpdate={setCurrentTime}
         onSongEnded={handleSongEnded}
         onEngineReady={setIsWebGL2}
         onPerfStats={setPerfStats}
         onMagicProgress={(stepIndex, totalSteps) => setMagicProgress({ stepIndex, totalSteps })}
+        onRhythmFeedback={setRhythmFeedback}
       />
 
       {/* Studio Chrome (100% Hidden in Clean Video Mode) */}
@@ -869,6 +1065,8 @@ export const App: React.FC = () => {
           <TopBar
             midi={midi}
             activeDemoId={activeDemoId}
+            savedSongs={savedSongs}
+            activeLibrarySongId={activeLibrarySongId}
             settings={settings}
             playMode={playMode}
             inspectorOpen={inspectorOpen}
@@ -877,6 +1075,8 @@ export const App: React.FC = () => {
             isWebGL2={isWebGL2}
             usbMidiCount={usbMidiDevices.length}
             onSelectDemo={handleSelectDemo}
+            onSelectSavedSong={(id) => void handleSelectSavedSong(id)}
+            onDeleteSavedSong={(id) => void handleDeleteSavedSong(id)}
             onUploadMidi={(f) => void handleUploadMidi(f)}
             onUpdateSettings={updateSettings}
             onChangePlayMode={handleChangePlayMode}
@@ -899,9 +1099,48 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* Subtle Active Play Mode Banner (Magic Keys / QWERTY) */}
+          {/* Optional Sleek Rhythm Accuracy & Combo HUD (only in Interactive Modes!) */}
+          {playMode !== 'auto' && settings.showRhythmHud && rhythmFeedback && (
+            <div className="fixed top-28 left-4 z-20 px-3.5 py-2 rounded-2xl bg-slate-950/80 backdrop-blur-xl border border-white/12 shadow-[0_10px_30px_rgba(0,0,0,0.5)] pointer-events-none flex items-center gap-3">
+              <div>
+                <div
+                  className={`text-xs font-black tracking-wider ${
+                    rhythmFeedback.rating === 'PERFECT'
+                      ? 'text-amber-300'
+                      : rhythmFeedback.rating === 'GREAT'
+                        ? 'text-cyan-300'
+                        : 'text-emerald-300'
+                  }`}
+                >
+                  {rhythmFeedback.rating}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400">
+                  {rhythmFeedback.accuracy}% ACC
+                </div>
+              </div>
+              <div className="pl-2.5 border-l border-white/10 text-right">
+                <div className="text-lg font-black leading-none text-white font-mono">
+                  {rhythmFeedback.combo}
+                  <span className="text-[10px] text-violet-300 ml-0.5">x</span>
+                </div>
+                <div className="text-[9px] uppercase tracking-wider text-slate-400">COMBO</div>
+              </div>
+            </div>
+          )}
+
+          {/* Subtle Active Play Mode Banner (Magic Keys / Practice / QWERTY) — shifts cleanly away from drawer! */}
           {playMode !== 'auto' && !toastMsg && (
-            <div className="fixed top-16 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-xl border border-amber-400/35 text-[11px] text-amber-100 shadow-lg flex items-center gap-2.5">
+            <div
+              className={`fixed top-16 z-20 px-3.5 py-1.5 rounded-full bg-slate-950/82 backdrop-blur-xl border text-[11px] shadow-lg flex items-center gap-2.5 transition-all ${
+                inspectorOpen ? 'left-3' : 'left-1/2 -translate-x-1/2'
+              } ${
+                playMode === 'practice'
+                  ? 'border-cyan-400/40 text-cyan-100'
+                  : playMode === 'qwerty'
+                    ? 'border-emerald-400/35 text-emerald-100'
+                    : 'border-amber-400/35 text-amber-100'
+              }`}
+            >
               {playMode === 'magic-keys' ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
@@ -912,6 +1151,15 @@ export const App: React.FC = () => {
                   </span>
                   <span className="font-mono text-amber-300 font-semibold">
                     {magicProgress.stepIndex}/{magicProgress.totalSteps}
+                  </span>
+                </>
+              ) : playMode === 'practice' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  <span>
+                    {settings.language === 'en'
+                      ? `Wait-for-Note Practice (${settings.practiceHand === 'both' ? 'Both Hands' : settings.practiceHand === 'right' ? 'Right Hand' : 'Left Hand'}) — Play glowing amber keys!`
+                      : `Luyện đàn (${settings.practiceHand === 'both' ? '2 Tay' : settings.practiceHand === 'right' ? 'Tay Phải' : 'Tay Trái'}) — Bấm các phím sáng vàng!`}
                   </span>
                 </>
               ) : (
@@ -970,6 +1218,9 @@ export const App: React.FC = () => {
             sampleState={sampleState}
             sampleProgress={sampleProgress}
             customAudioName={customAudioName}
+            lyricsName={lyricsName}
+            lyricsCount={lyrics.length}
+            canRetranscribe={canRetranscribe}
             usbMidiSupported={usbMidiSupported}
             usbMidiConnected={usbMidiConnected}
             usbMidiDevices={usbMidiDevices}
@@ -980,9 +1231,13 @@ export const App: React.FC = () => {
             onApplyPreset={applyPreset}
             onExportPresetJson={handleExportPresetJson}
             onImportPresetJson={(f) => void handleImportPresetJson(f)}
+            onSharePresetUrl={() => void handleSharePresetUrl()}
             onClearBrowserStorage={() => void handleClearBrowserStorage()}
             onTranscribeAudio={(f) => void handleTranscribeAudio(f)}
+            onRetranscribeAudio={() => void handleRetranscribeAudio()}
             onExportCurrentMidi={handleExportCurrentMidi}
+            onUploadLyrics={(f) => void handleUploadLyrics(f)}
+            onClearLyrics={handleClearLyrics}
             onUpdateTrackOverride={handleUpdateTrackOverride}
             onResetTrackOverrides={() => setTrackOverrides({})}
             onChangePlayMode={handleChangePlayMode}
@@ -1043,9 +1298,13 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Subtle Toast Notifications (never shown while recording or in Clean Mode) */}
+      {/* Subtle Toast Notifications (never shown while recording or in Clean Mode; avoids drawer overlap!) */}
       {toastMsg && !isRecording && !cleanMode && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-slate-950/88 backdrop-blur-xl border border-violet-400/35 text-xs font-medium text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] pointer-events-none">
+        <div
+          className={`fixed top-16 z-40 px-4 py-2 rounded-full bg-slate-950/90 backdrop-blur-xl border border-violet-400/35 text-xs font-medium text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] pointer-events-none max-w-[min(92vw,540px)] truncate ${
+            inspectorOpen ? 'left-3' : 'left-1/2 -translate-x-1/2'
+          }`}
+        >
           {toastMsg}
         </div>
       )}

@@ -1,6 +1,7 @@
 import type { AudioEnergy } from '../audio/AudioEngine';
+import { findActiveLyricIndex } from '../midi/LyricsParser';
 import { findVisibleNoteRange } from '../midi/MidiParser';
-import type { ParsedMidi, TrackOverride, VisualizerSettings } from '../types/visualizer';
+import type { LyricLine, ParsedMidi, TrackOverride, VisualizerSettings } from '../types/visualizer';
 import { hexToRgb, lightenRgb, resolveNoteColor, rgbToCss, type RGB } from './ColorUtils';
 import {
   FIRST_MIDI,
@@ -58,6 +59,7 @@ export class SceneRenderer {
   private readonly hands = new VirtualHandsController();
   private sustainSmooth = 0;
   private cameraPunch = 0;
+  private cameraVanishX = 0;
 
   // Precomputed smoothed wave arrays for the plasma keyboard edge
   private readonly waveSamples = 180;
@@ -135,7 +137,9 @@ export class SceneRenderer {
     spectrumBins?: Float32Array,
     trackOverrides?: Readonly<Record<number, TrackOverride>>,
     sustainPedalDown = false,
-    videoEl?: HTMLVideoElement | null
+    videoEl?: HTMLVideoElement | null,
+    lyrics?: readonly LyricLine[],
+    waitingNotes?: ReadonlySet<number>
   ): SceneFrameResult {
     const ctx = this.ctx;
     const width = this.canvas.width;
@@ -162,6 +166,8 @@ export class SceneRenderer {
       for (let i = startIdx; i < endIdx; i++) {
         const n = midi.notes[i];
         if (trackOverrides?.[n.trackIndex]?.hidden) continue;
+        // In Wait-for-Note Practice mode, keep waiting keys unpressed (amber guide!) until the player hits them!
+        if (waitingNotes && waitingNotes.has(n.midi) && !manualPressedNotes.has(n.midi)) continue;
         if (n.start <= currentTime && n.end >= currentTime) {
           const col = resolveNoteColor(n, settings, trackOverrides);
           const existing = currentlyPressed.get(n.midi);
@@ -225,6 +231,29 @@ export class SceneRenderer {
       this.cameraPunch += (punchTarget - this.cameraPunch) * Math.min(1, dt * 18);
     } else {
       this.cameraPunch *= Math.exp(-dt * 7.5);
+    }
+
+    // Dynamic Cinematic 3D Camera Auto-Drift: smoothly pans horizon vanishing point toward active harmony!
+    if (settings.dynamicCameraEnabled && is3D) {
+      let weightedX = 0;
+      let totalW = 0;
+      for (let i = 0; i < TOTAL_KEYS; i++) {
+        const ks = this.keyStates[i];
+        if (ks.intensity > 0.08) {
+          const k = getKeyLayoutByMidi(ks.midi);
+          if (k) {
+            const w = ks.intensity * (0.4 + ks.velocity);
+            weightedX += (k.normCenterX - 0.5) * w;
+            totalW += w;
+          }
+        }
+      }
+      const centroidOffset = totalW > 0.01 ? (weightedX / totalW) * 0.22 : 0;
+      const sway = Math.sin(clockSec * 0.42) * 0.018;
+      const targetVanish = Math.max(-0.09, Math.min(0.09, centroidOffset + sway));
+      this.cameraVanishX += (targetVanish - this.cameraVanishX) * Math.min(1, dt * 2.1);
+    } else {
+      this.cameraVanishX += (0 - this.cameraVanishX) * Math.min(1, dt * 5.0);
     }
 
     this.prevPressedSet = new Set(currentlyPressed.keys());
@@ -297,7 +326,7 @@ export class SceneRenderer {
 
     // 9. Render Piano Keyboard &/OR Overhead Real-Hands Video Overlay (Rousseau / SeeMusic style!)
     if (!isOverheadHandsVideo || !settings.hideSyntheticKeyboard) {
-      this.renderPianoKeyboard(ctx, width, height, hitLineY, pianoHeight, settings);
+      this.renderPianoKeyboard(ctx, width, height, hitLineY, pianoHeight, settings, clockSec, waitingNotes);
     } else {
       // Dark clean backdrop behind real overhead hands video
       ctx.fillStyle = '#04050a';
@@ -330,6 +359,11 @@ export class SceneRenderer {
         leftTheme,
         rightTheme
       );
+    }
+
+    // 11.5 Render Luminous On-Canvas Lyrics (.lrc / .srt) directly onto canvas (baked into Clean Mode & Video!)
+    if (settings.showLyrics && lyrics && lyrics.length > 0) {
+      this.renderLyricsOverlay(ctx, lyrics, currentTime, width, hitLineY, settings);
     }
 
     // 12. Render Cinematic Title Intro Card & Channel Watermark directly onto Canvas (baked into video!)
@@ -553,8 +587,8 @@ export class SceneRenderer {
       if (!isOctaveC && !(is3D && isEdge)) continue;
 
       const nx = i === layout.length - 1 ? 1.0 : k.normX;
-      const p0 = projectHighwayPoint(nx, 0, width, hitLineY, is3D, settings.perspectiveTilt);
-      const p1 = projectHighwayPoint(nx, 1, width, hitLineY, is3D, settings.perspectiveTilt);
+      const p0 = projectHighwayPoint(nx, 0, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
+      const p1 = projectHighwayPoint(nx, 1, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
 
       const lineGrad = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
       const alpha = isEdge ? 0.3 : is3D ? 0.14 : 0.07;
@@ -577,8 +611,8 @@ export class SceneRenderer {
         if (dtBar < -0.05 || dtBar > lookahead) continue;
 
         const normT = dtBar / lookahead;
-        const leftPt = projectHighwayPoint(0, normT, width, hitLineY, is3D, settings.perspectiveTilt);
-        const rightPt = projectHighwayPoint(1, normT, width, hitLineY, is3D, settings.perspectiveTilt);
+        const leftPt = projectHighwayPoint(0, normT, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
+        const rightPt = projectHighwayPoint(1, normT, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
 
         const fade = Math.min(1, (1 - normT) * 2.2);
         ctx.strokeStyle = `rgba(226, 232, 240, ${(0.2 * fade).toFixed(3)})`;
@@ -636,7 +670,8 @@ export class SceneRenderer {
         width,
         hitLineY,
         is3D,
-        settings.perspectiveTilt
+        settings.perspectiveTilt,
+        this.cameraVanishX
       );
 
       const grad = ctx.createLinearGradient(cx, hitLineY, pTop.x, pTop.y);
@@ -717,10 +752,10 @@ export class SceneRenderer {
         const nLeft = key.normX + key.normWidth * padRatio;
         const nRight = key.normX + key.normWidth * (1 - padRatio);
 
-        const bl = projectHighwayPoint(nLeft, tBottom, width, hitLineY, is3D, settings.perspectiveTilt);
-        const br = projectHighwayPoint(nRight, tBottom, width, hitLineY, is3D, settings.perspectiveTilt);
-        const tl = projectHighwayPoint(nLeft, tTop, width, hitLineY, is3D, settings.perspectiveTilt);
-        const tr = projectHighwayPoint(nRight, tTop, width, hitLineY, is3D, settings.perspectiveTilt);
+        const bl = projectHighwayPoint(nLeft, tBottom, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
+        const br = projectHighwayPoint(nRight, tBottom, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
+        const tl = projectHighwayPoint(nLeft, tTop, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
+        const tr = projectHighwayPoint(nRight, tTop, width, hitLineY, is3D, settings.perspectiveTilt, this.cameraVanishX);
 
         // Enforce minimum readable vertical pixel height while preserving gap
         const rawBoxH = bl.y - tl.y;
@@ -1197,30 +1232,41 @@ export class SceneRenderer {
     height: number,
     hitLineY: number,
     pianoHeight: number,
-    settings: VisualizerSettings
+    settings: VisualizerSettings,
+    clockSec: number,
+    waitingNotes?: ReadonlySet<number>
   ): void {
     const layout = getPianoLayout();
     const blackKeyH = pianoHeight * 0.62;
+    const pxScale = Math.max(1, width / 1360);
+    const waitPulse = 0.55 + 0.45 * Math.sin(clockSec * 6.4);
 
     ctx.fillStyle = '#07080d';
     ctx.fillRect(0, hitLineY, width, pianoHeight);
 
-    // 1. White Keys
+    // 1. White Keys (with 3D velocity-scaled hammer depression & cast side-shadows!)
     for (let i = 0; i < TOTAL_KEYS; i++) {
       const k = layout[i];
       if (k.isBlack) continue;
       const ks = this.keyStates[i];
+      const isWaiting = Boolean(waitingNotes && waitingNotes.has(k.midi));
       const x = k.normX * width;
       const w = k.normWidth * width;
-      const pressShift = ks.intensity * 3.5;
+      const hammerDepth = ks.intensity * (3.2 + ks.velocity * 4.4) * pxScale;
+      const keyW = Math.max(1, w - 1.4 * pxScale);
 
       const grad = ctx.createLinearGradient(x, hitLineY, x, height);
       if (ks.intensity > 0.02) {
         const hi = lightenRgb(ks.color, 0.3);
         grad.addColorStop(0, rgbToCss(lightenRgb(ks.color, 0.45), 1));
         grad.addColorStop(0.32, rgbToCss(hi, 1));
-        grad.addColorStop(0.86, rgbToCss(ks.color, 0.98));
-        grad.addColorStop(1, rgbToCss(darkenRgb(ks.color, 0.2), 1));
+        grad.addColorStop(0.84, rgbToCss(ks.color, 0.98));
+        grad.addColorStop(1, rgbToCss(darkenRgb(ks.color, 0.28), 1));
+      } else if (isWaiting) {
+        grad.addColorStop(0, `rgba(251, 191, 36, ${(0.55 + 0.3 * waitPulse).toFixed(2)})`);
+        grad.addColorStop(0.38, '#fef3c7');
+        grad.addColorStop(0.9, '#fde68a');
+        grad.addColorStop(1, '#d97706');
       } else {
         grad.addColorStop(0, '#9ba6b8');
         grad.addColorStop(0.08, '#d4dce8');
@@ -1230,10 +1276,38 @@ export class SceneRenderer {
       }
 
       ctx.fillStyle = grad;
-      ctx.fillRect(x + 0.75, hitLineY + pressShift, Math.max(1, w - 1.5), pianoHeight - pressShift);
+      ctx.fillRect(x + 0.7 * pxScale, hitLineY + hammerDepth, keyW, pianoHeight - hammerDepth);
 
-      ctx.fillStyle = ks.intensity > 0.05 ? 'rgba(255,255,255,0.22)' : 'rgba(10, 15, 28, 0.38)';
-      ctx.fillRect(x + 0.75, height - 4, Math.max(1, w - 1.5), 4);
+      // 3D inner recessed side shadows when a white key is physically depressed below its neighbors!
+      if (ks.intensity > 0.08) {
+        const shadeW = Math.min(keyW * 0.24, 4.5 * pxScale);
+        const leftShade = ctx.createLinearGradient(x + 0.7 * pxScale, 0, x + 0.7 * pxScale + shadeW, 0);
+        leftShade.addColorStop(0, `rgba(2, 6, 23, ${(0.44 * ks.intensity).toFixed(3)})`);
+        leftShade.addColorStop(1, 'rgba(2, 6, 23, 0)');
+        ctx.fillStyle = leftShade;
+        ctx.fillRect(x + 0.7 * pxScale, hitLineY + hammerDepth, shadeW, pianoHeight - hammerDepth);
+
+        const rightEdge = x + 0.7 * pxScale + keyW;
+        const rightShade = ctx.createLinearGradient(rightEdge - shadeW, 0, rightEdge, 0);
+        rightShade.addColorStop(0, 'rgba(2, 6, 23, 0)');
+        rightShade.addColorStop(1, `rgba(2, 6, 23, ${(0.44 * ks.intensity).toFixed(3)})`);
+        ctx.fillStyle = rightShade;
+        ctx.fillRect(rightEdge - shadeW, hitLineY + hammerDepth, shadeW, pianoHeight - hammerDepth);
+      }
+
+      // 3D front lip thickness shrinks slightly as key presses down into the keybed
+      const lipH = Math.max(2 * pxScale, (4.8 - ks.intensity * 2.2) * pxScale);
+      ctx.fillStyle = ks.intensity > 0.05 ? 'rgba(255,255,255,0.24)' : 'rgba(10, 15, 28, 0.44)';
+      ctx.fillRect(x + 0.7 * pxScale, height - lipH, keyW, lipH);
+
+      // Practice Wait-for-Note beacon dot on waiting white key
+      if (isWaiting && ks.intensity < 0.2) {
+        const dotR = Math.max(3 * pxScale, Math.min(6 * pxScale, w * 0.22));
+        ctx.fillStyle = `rgba(245, 158, 11, ${(0.75 + 0.25 * waitPulse).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(x + w * 0.5, height - lipH - dotR * 2.2, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       if (settings.showKeyOctaveLabels && k.midi % 12 === 0 && w >= 12) {
         const octave = Math.floor(k.midi / 12) - 1;
@@ -1271,24 +1345,31 @@ export class SceneRenderer {
       ctx.restore();
     }
 
-    // 3. Black Keys (deep glossy concert ebony)
+    // 3. Black Keys (deep glossy concert ebony with 3D hammer drop & front bevel!)
     for (let i = 0; i < TOTAL_KEYS; i++) {
       const k = layout[i];
       if (!k.isBlack) continue;
       const ks = this.keyStates[i];
+      const isWaiting = Boolean(waitingNotes && waitingNotes.has(k.midi));
       const x = k.normX * width;
       const w = k.normWidth * width;
-      const pressShift = ks.intensity * 2.5;
-      const kh = blackKeyH - pressShift * 0.4;
+      const pressShift = ks.intensity * (2.6 + ks.velocity * 2.4) * pxScale;
+      const kh = blackKeyH - pressShift * 0.42;
 
-      ctx.fillStyle = 'rgba(2, 6, 23, 0.52)';
-      ctx.fillRect(x - 1.2, hitLineY, w + 2.6, kh + 3);
+      // Realistic cast shadow underneath raised black key (shrinks when key presses down!)
+      const shadowExtra = (3.4 - ks.intensity * 1.9) * pxScale;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.56)';
+      ctx.fillRect(x - 1.3 * pxScale, hitLineY, w + 2.8 * pxScale, kh + shadowExtra);
 
       const bodyGrad = ctx.createLinearGradient(x, hitLineY, x, hitLineY + kh);
       if (ks.intensity > 0.03) {
         bodyGrad.addColorStop(0, rgbToCss(lightenRgb(ks.color, 0.36), 1));
         bodyGrad.addColorStop(0.55, rgbToCss(ks.color, 1));
         bodyGrad.addColorStop(1, rgbToCss(darkenRgb(ks.color, 0.25), 1));
+      } else if (isWaiting) {
+        bodyGrad.addColorStop(0, `rgba(245, 158, 11, ${(0.72 + 0.28 * waitPulse).toFixed(2)})`);
+        bodyGrad.addColorStop(0.6, '#d97706');
+        bodyGrad.addColorStop(1, '#78350f');
       } else {
         bodyGrad.addColorStop(0, '#141824');
         bodyGrad.addColorStop(0.12, '#05060b');
@@ -1297,27 +1378,35 @@ export class SceneRenderer {
       }
 
       ctx.fillStyle = bodyGrad;
-      ctx.fillRect(x, hitLineY, w, kh);
+      ctx.fillRect(x, hitLineY + pressShift * 0.35, w, kh);
 
       const innerPad = Math.max(1, w * 0.14);
       ctx.fillStyle =
         ks.intensity > 0.05
           ? `rgba(255, 255, 255, ${(0.35 * ks.intensity).toFixed(3)})`
-          : 'rgba(255, 255, 255, 0.08)';
-      ctx.fillRect(x + innerPad, hitLineY + 2, Math.max(1, w - innerPad * 2), kh - 7);
+          : isWaiting
+            ? `rgba(254, 243, 199, ${(0.45 * waitPulse).toFixed(2)})`
+            : 'rgba(255, 255, 255, 0.08)';
+      ctx.fillRect(x + innerPad, hitLineY + pressShift * 0.35 + 2 * pxScale, Math.max(1, w - innerPad * 2), kh - 7 * pxScale);
 
-      if (ks.intensity > 0.05) {
-        ctx.strokeStyle = rgbToCss(lightenRgb(ks.color, 0.55), 0.9 * ks.intensity);
-        ctx.lineWidth = 1.2;
-        ctx.strokeRect(x + 0.5, hitLineY + 0.5, w - 1, kh - 1);
+      if (ks.intensity > 0.05 || isWaiting) {
+        ctx.strokeStyle =
+          ks.intensity > 0.05
+            ? rgbToCss(lightenRgb(ks.color, 0.55), 0.9 * ks.intensity)
+            : `rgba(251, 191, 36, ${(0.75 + 0.25 * waitPulse).toFixed(2)})`;
+        ctx.lineWidth = 1.2 * pxScale;
+        ctx.strokeRect(x + 0.5, hitLineY + pressShift * 0.35 + 0.5, w - 1, kh - 1);
       }
     }
 
-    const feltGrad = ctx.createLinearGradient(0, hitLineY, 0, hitLineY + 6);
+    // Concert grand deep crimson keybed felt strip + top fallboard shadow
+    ctx.fillStyle = 'rgba(127, 29, 29, 0.65)';
+    ctx.fillRect(0, hitLineY, width, 2.2 * pxScale);
+    const feltGrad = ctx.createLinearGradient(0, hitLineY, 0, hitLineY + 7 * pxScale);
     feltGrad.addColorStop(0, 'rgba(0, 0, 0, 0.72)');
     feltGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = feltGrad;
-    ctx.fillRect(0, hitLineY, width, 6);
+    ctx.fillRect(0, hitLineY, width, 7 * pxScale);
   }
 
   /**
@@ -1586,6 +1675,64 @@ export class SceneRenderer {
       ctx.strokeStyle = `rgba(255, 255, 255, ${(0.72 * alpha).toFixed(3)})`;
       ctx.lineWidth = 1.05 * pxScale;
       ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v4.0 Luminous On-Canvas Lyrics (.lrc / .srt): smoothly fades in active lyric line
+   * + subtle upcoming line right on the WebGL2 canvas (baked into Clean Mode & 60fps Video!).
+   */
+  private renderLyricsOverlay(
+    ctx: CanvasRenderingContext2D,
+    lyrics: readonly LyricLine[],
+    currentTime: number,
+    width: number,
+    hitLineY: number,
+    settings: VisualizerSettings
+  ): void {
+    const idx = findActiveLyricIndex(lyrics, currentTime);
+    if (idx === -1) return;
+
+    const line = lyrics[idx];
+    const nextLine = idx + 1 < lyrics.length ? lyrics[idx + 1] : null;
+    const pxScale = Math.max(1, width / 1360);
+
+    const fadeIn = Math.min(1, Math.max(0, (currentTime - line.time) / 0.28));
+    const fadeOut = Math.min(1, Math.max(0, (line.endTime + 0.22 - currentTime) / 0.35));
+    const alpha = fadeIn * fadeOut;
+    if (alpha <= 0.02) return;
+
+    const centerY = hitLineY * 0.2;
+    const riseOffset = (1 - fadeIn) * 8 * pxScale;
+    const accent = hexToRgb(settings.rightHandColor);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Active lyric line with subtle glowing cinema backdrop
+    ctx.globalAlpha = alpha;
+    ctx.font = `700 ${Math.round(28 * pxScale)}px "Space Grotesk", "Inter", sans-serif`;
+    ctx.shadowColor = rgbToCss(accent, 0.65);
+    ctx.shadowBlur = 16 * pxScale;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(line.text, width * 0.5, centerY + riseOffset, width * 0.86);
+
+    // Subtle crisp dark contrast pass underneath for readability over bright particles
+    ctx.shadowColor = 'rgba(2, 4, 12, 0.92)';
+    ctx.shadowBlur = 8 * pxScale;
+    ctx.fillText(line.text, width * 0.5, centerY + riseOffset, width * 0.86);
+
+    // Next upcoming lyric line preview
+    if (nextLine && nextLine.time - currentTime < 6.5) {
+      ctx.globalAlpha = alpha * 0.44;
+      ctx.font = `500 ${Math.round(16 * pxScale)}px "Inter", sans-serif`;
+      ctx.shadowColor = 'rgba(2, 4, 12, 0.85)';
+      ctx.shadowBlur = 6 * pxScale;
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(nextLine.text, width * 0.5, centerY + 34 * pxScale + riseOffset * 0.5, width * 0.8);
     }
 
     ctx.restore();
