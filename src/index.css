@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #05060b;
+    font-family: var(--font-sans);
+    overflow: hidden;
+  }
+}
+
+/* Custom sleek studio sliders */
+input[type='range'].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type='range'].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #f8fafc;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+input[type='range'].studio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+  box-shadow: 0 0 18px rgba(167, 139, 250, 0.95);
+}
+
+input[type='range'].studio-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #f8fafc;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+}
+
+/* Custom dark scrollbar for inspector drawer */
+.studio-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.studio-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.studio-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+}
+
+.studio-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.42);
+}
+
+.cursor-hidden,
+.cursor-hidden * {
+  cursor: none !important;
+}
