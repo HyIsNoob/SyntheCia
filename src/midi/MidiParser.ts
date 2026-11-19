@@ -2,11 +2,60 @@ import { Midi } from '@tonejs/midi';
 import type {
   MeasureMarker,
   MidiNoteEvent,
+  MidiTrackInfo,
   ParsedMidi,
   SustainInterval,
 } from '../types/visualizer';
 
 export const PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
+
+const DEFAULT_TRACK_COLORS = [
+  '#ff9640',
+  '#9b6dff',
+  '#38bdf8',
+  '#f472b6',
+  '#34d399',
+  '#fbbf24',
+  '#fb7185',
+  '#a78bfa',
+];
+
+/**
+ * O(log N) binary-search windowing for falling notes & active key detection.
+ * Returns [startIndex, endIndex) of candidate notes that could overlap [windowStart, windowEnd].
+ */
+export function findVisibleNoteRange(
+  notes: readonly MidiNoteEvent[],
+  windowStart: number,
+  windowEnd: number,
+  maxNoteDuration: number
+): [number, number] {
+  const len = notes.length;
+  if (len === 0) return [0, 0];
+
+  // Earliest possible start time of a note whose end >= windowStart
+  const minStart = windowStart - maxNoteDuration - 0.05;
+
+  // Lower bound for start >= minStart
+  let lo = 0;
+  let hi = len;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (notes[mid].start < minStart) lo = mid + 1;
+    else hi = mid;
+  }
+  const startIdx = lo;
+
+  // Upper bound for start <= windowEnd
+  lo = startIdx;
+  hi = len;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (notes[mid].start <= windowEnd) lo = mid + 1;
+    else hi = mid;
+  }
+  return [startIdx, lo];
+}
 
 export function midiToNoteName(midi: number): { name: string; pitchClass: string } {
   const pitchClass = PITCH_NAMES[((midi % 12) + 12) % 12];
@@ -154,8 +203,16 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName = 'Untitled.mi
 
   let nextId = 1;
   let maxEnd = 0;
+  let maxNoteDuration = 0.5;
+  const tracks: MidiTrackInfo[] = [];
 
-  for (const { track, idx } of melodicTracks) {
+  for (let mIdx = 0; mIdx < melodicTracks.length; mIdx++) {
+    const { track, idx } = melodicTracks[mIdx];
+    let trackValidNotes = 0;
+    const avgPitch = trackAveragePitch.get(idx) ?? 60;
+    const defaultHand: 'left' | 'right' =
+      leftTrackIdx !== null ? (idx === leftTrackIdx ? 'left' : 'right') : avgPitch < 60 ? 'left' : 'right';
+
     // Parse CC64 sustain pedal events
     const cc64 = track.controlChanges[64];
     if (cc64 && cc64.length > 0) {
@@ -181,6 +238,8 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName = 'Untitled.mi
       const duration = Math.max(0.05, note.duration);
       const end = start + duration;
       if (end > maxEnd) maxEnd = end;
+      if (duration > maxNoteDuration) maxNoteDuration = duration;
+      trackValidNotes++;
 
       const { name, pitchClass } = midiToNoteName(note.midi);
       let hand: 'left' | 'right';
@@ -203,6 +262,24 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName = 'Untitled.mi
         hand,
       });
     }
+
+    if (trackValidNotes > 0) {
+      const trimmed = track.name?.trim();
+      tracks.push({
+        trackIndex: idx,
+        name:
+          trimmed && trimmed.length > 0
+            ? trimmed
+            : melodicTracks.length === 2
+              ? defaultHand === 'left'
+                ? 'Left Hand'
+                : 'Right Hand'
+              : `Track ${mIdx + 1}`,
+        noteCount: trackValidNotes,
+        defaultHand,
+        defaultColor: DEFAULT_TRACK_COLORS[mIdx % DEFAULT_TRACK_COLORS.length],
+      });
+    }
   }
 
   rawNotes.sort((a, b) => a.start - b.start || a.midi - b.midi);
@@ -219,9 +296,11 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName = 'Untitled.mi
   return {
     name: cleanName,
     duration,
+    maxNoteDuration,
     bpm,
     timeSignature: ts,
-    trackCount: melodicTracks.length,
+    trackCount: tracks.length,
+    tracks,
     notes: rawNotes,
     sustainIntervals,
     measures,

@@ -93,6 +93,7 @@ export class AudioEngine {
   private volume = 0.82;
   private reverbMix = 0.36;
   private smoothedEnergy: AudioEnergy = { bass: 0, mid: 0, treble: 0, overall: 0 };
+  private spectrumOut = new Float32Array(64);
 
   public setSampleStateListener(
     cb: (state: SampleLoadState, loaded: number, total: number) => void
@@ -545,6 +546,33 @@ export class AudioEngine {
     this.smoothedEnergy.overall += (rawOverall - this.smoothedEnergy.overall) * 0.22;
 
     return this.smoothedEnergy;
+  }
+
+  /**
+   * Returns 64 smoothed log-spaced frequency bins in [0..1] for the live Audio EQ Spectrum visualizer.
+   */
+  public getSpectrumBins(activeKeyFallback = 0): Float32Array {
+    const out = this.spectrumOut;
+    const count = out.length;
+
+    if (!this.analyser || !this.fftData) {
+      for (let i = 0; i < count; i++) {
+        const target = activeKeyFallback * 0.35 * Math.sin((i / count) * Math.PI);
+        out[i] += (target - out[i]) * 0.18;
+      }
+      return out;
+    }
+
+    this.analyser.getByteFrequencyData(this.fftData);
+    const maxBin = Math.min(this.fftData.length - 1, 96);
+    for (let i = 0; i < count; i++) {
+      // Gentle logarithmic mapping so bass & piano fundamentals get expressive spread
+      const t = i / (count - 1);
+      const binIdx = Math.min(maxBin, Math.floor(Math.pow(t, 1.35) * maxBin));
+      const raw = this.fftData[binIdx] / 255;
+      out[i] += (raw - out[i]) * (raw > out[i] ? 0.42 : 0.16);
+    }
+    return out;
   }
 
   public dispose(): void {

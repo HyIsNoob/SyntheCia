@@ -393,6 +393,10 @@ export class WebGLCompositor {
     this.pActive = 0;
   }
 
+  public getActiveParticleCount(): number {
+    return this.pActive;
+  }
+
   public resize(width: number, height: number): void {
     const w = Math.max(2, Math.floor(width));
     const h = Math.max(2, Math.floor(height));

@@ -11,7 +11,9 @@ import {
   WHITE_KEY_COUNT,
 } from '../engine/PianoGeometry';
 import { DEMO_SONGS } from '../midi/DemoSongs';
-import { detectChordForNotes, midiToNoteName, parseMidiBuffer } from '../midi/MidiParser';
+import { buildMagicSteps, findMagicStepIndexAtTime } from '../midi/MagicKeys';
+import { detectChordForNotes, findVisibleNoteRange, midiToNoteName, parseMidiBuffer } from '../midi/MidiParser';
+import { isMagicTriggerKey, qwertyCodeToMidi } from '../midi/QwertyPiano';
 import { assignNotesToFingers, VirtualHandsController } from '../engine/VirtualHands';
 
 describe('PianoGeometry', () => {
@@ -167,5 +169,42 @@ describe('VirtualHands Kinematics', () => {
     }
     expect(ctrl.right.palmX).not.toBe(initialRightX);
     expect(ctrl.left.presence).toBeGreaterThan(0.5);
+  });
+});
+
+describe('Performance Windowing, Magic Keys & QWERTY Piano', () => {
+  it('binary-searches visible note windows accurately for large MIDI note lists', () => {
+    const song = DEMO_SONGS[0].build();
+    const [lo, hi] = findVisibleNoteRange(song.notes, 10.0, 12.5, song.maxNoteDuration);
+    expect(lo).toBeGreaterThanOrEqual(0);
+    expect(hi).toBeLessThanOrEqual(song.notes.length);
+    // Every note overlapping [10.0, 12.5] must be contained inside [lo, hi)
+    const brute = song.notes.filter((n) => n.start <= 12.5 && n.end >= 10.0);
+    const windowed = song.notes.slice(lo, hi).filter((n) => n.start <= 12.5 && n.end >= 10.0);
+    expect(windowed.length).toBe(brute.length);
+  });
+
+  it('groups simultaneous MIDI chords into sequential Magic Keys steps', () => {
+    const song = DEMO_SONGS[0].build();
+    const steps = buildMagicSteps(song);
+    expect(steps.length).toBeGreaterThan(20);
+    expect(steps.length).toBeLessThan(song.notes.length); // chords grouped together
+    // Step times strictly increase
+    for (let i = 1; i < steps.length; i++) {
+      expect(steps[i].time).toBeGreaterThan(steps[i - 1].time);
+    }
+    const idxMid = findMagicStepIndexAtTime(steps, song.duration * 0.5);
+    expect(idxMid).toBeGreaterThan(0);
+    expect(idxMid).toBeLessThanOrEqual(steps.length);
+  });
+
+  it('maps QWERTY keyboard codes to valid 88-key MIDI pitches and filters Magic trigger keys', () => {
+    expect(qwertyCodeToMidi('KeyQ', 0)).toBe(60); // Middle C4
+    expect(qwertyCodeToMidi('KeyZ', 0)).toBe(48); // C3
+    expect(qwertyCodeToMidi('KeyQ', 1)).toBe(72); // C5
+    expect(isMagicTriggerKey('KeyA')).toBe(true);
+    expect(isMagicTriggerKey('Digit5')).toBe(true);
+    expect(isMagicTriggerKey('Escape')).toBe(false);
+    expect(isMagicTriggerKey('Space')).toBe(false);
   });
 });

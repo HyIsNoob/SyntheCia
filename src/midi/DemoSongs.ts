@@ -69,15 +69,41 @@ class SongBuilder {
 
   finish(name: string, timeSignature: [number, number] = [4, 4]): ParsedMidi {
     this.notes.sort((a, b) => a.start - b.start || a.midi - b.midi);
-    const maxEnd = this.notes.reduce((acc, n) => Math.max(acc, n.end), 0);
+    let maxEnd = 0;
+    let maxNoteDuration = 0.5;
+    let leftCount = 0;
+    let rightCount = 0;
+    for (const n of this.notes) {
+      if (n.end > maxEnd) maxEnd = n.end;
+      if (n.duration > maxNoteDuration) maxNoteDuration = n.duration;
+      if (n.trackIndex === 0) leftCount++;
+      else rightCount++;
+    }
     const duration = maxEnd + 2.0;
     const measures = buildMeasureMarkers(this.notes, duration, this.bpm, timeSignature);
     return {
       name,
       duration,
+      maxNoteDuration,
       bpm: this.bpm,
       timeSignature,
       trackCount: 2,
+      tracks: [
+        {
+          trackIndex: 0,
+          name: 'Left Hand',
+          noteCount: leftCount,
+          defaultHand: 'left',
+          defaultColor: '#ff9640',
+        },
+        {
+          trackIndex: 1,
+          name: 'Right Hand',
+          noteCount: rightCount,
+          defaultHand: 'right',
+          defaultColor: '#9b6dff',
+        },
+      ],
       notes: this.notes,
       sustainIntervals: this.sustains,
       measures,

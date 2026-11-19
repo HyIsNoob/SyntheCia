@@ -4,7 +4,24 @@ export type ColorMode = 'dual-hand' | 'rainbow' | 'velocity' | 'track';
 export type BackgroundPreset = 'void' | 'aurora' | 'nebula' | 'midnight-ember' | 'custom';
 export type AspectRatioMode = 'full' | '16:9' | '9:16' | '1:1';
 export type AudioMode = 'salamander' | 'synth' | 'custom-audio';
-export type HandStyle = 'realistic' | 'hologram' | 'neon-wire';
+export type HandStyle = 'aura' | 'hologram' | 'neon-wire';
+export type Language = 'vi' | 'en';
+export type PlayMode = 'auto' | 'qwerty' | 'magic-keys';
+
+export interface MidiTrackInfo {
+  trackIndex: number;
+  name: string;
+  noteCount: number;
+  defaultHand: 'left' | 'right';
+  defaultColor: string;
+}
+
+export interface TrackOverride {
+  muted?: boolean;
+  hidden?: boolean;
+  color?: string;
+  hand?: 'left' | 'right';
+}
 
 export interface MidiNoteEvent {
   id: number;
@@ -33,15 +50,21 @@ export interface MeasureMarker {
 export interface ParsedMidi {
   name: string;
   duration: number;
+  maxNoteDuration: number; // enables O(log N + visible) binary-search windowing
   bpm: number;
   timeSignature: [number, number];
   trackCount: number;
+  tracks: MidiTrackInfo[];
   notes: MidiNoteEvent[];
   sustainIntervals: SustainInterval[];
   measures: MeasureMarker[];
 }
 
 export interface VisualizerSettings {
+  // Language & UI
+  language: Language;
+  showPerfStats: boolean;
+
   // View & Notes
   viewMode: ViewMode;
   noteStyle: NoteStyle;
@@ -56,7 +79,7 @@ export interface VisualizerSettings {
   showChordLabels: boolean;
   perspectiveTilt: number; // 0.35..0.82 for 3D mode
 
-  // Virtual Pianist Hands
+  // Optional Energy Finger Guide (off by default for clean AAA visuals)
   showHands: boolean;
   handStyle: HandStyle;
   handOpacity: number; // 0.2..1.0
@@ -71,6 +94,13 @@ export interface VisualizerSettings {
   keyBeamIntensity: number; // 0..1.5
   plasmaEdgeWave: boolean;
   plasmaEdgeIntensity: number; // 0..2.0
+
+  // Phase 2 AAA Concert FX
+  eqSpectrumEnabled: boolean;
+  eqSpectrumHeight: number; // 0.2..1.5
+  mirrorReflectionEnabled: boolean;
+  mirrorReflectionIntensity: number; // 0..1.0
+  sustainAuraEnabled: boolean;
 
   // GPU Physics Particles
   particlesEnabled: boolean;
@@ -116,12 +146,16 @@ export interface VisualPreset {
   id: string;
   name: string;
   subtitle: string;
+  subtitleEn: string;
   accentFrom: string;
   accentTo: string;
   patch: Partial<VisualizerSettings>;
 }
 
 export const DEFAULT_SETTINGS: VisualizerSettings = {
+  language: 'vi',
+  showPerfStats: false,
+
   viewMode: '3d',
   noteStyle: 'neon-hollow',
   colorMode: 'rainbow',
@@ -135,9 +169,9 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   showChordLabels: true,
   perspectiveTilt: 0.58,
 
-  showHands: true,
-  handStyle: 'realistic',
-  handOpacity: 0.88,
+  showHands: false,
+  handStyle: 'aura',
+  handOpacity: 0.8,
 
   bloomIntensity: 1.52,
   bloomRadius: 1.38,
@@ -148,6 +182,12 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   keyBeamIntensity: 0.45,
   plasmaEdgeWave: true,
   plasmaEdgeIntensity: 1.15,
+
+  eqSpectrumEnabled: true,
+  eqSpectrumHeight: 0.75,
+  mirrorReflectionEnabled: true,
+  mirrorReflectionIntensity: 0.52,
+  sustainAuraEnabled: true,
 
   particlesEnabled: true,
   fluidSilkEnabled: true,
@@ -189,6 +229,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
     id: 'rainbow-neon-3d',
     name: 'Rainbow Neon 3D (AAA)',
     subtitle: 'Mặc định: Viền neon cầu vồng tách nốt sắc nét + Bloom 3 tầng & Hạt vật lý',
+    subtitleEn: 'Default: Rainbow neon outlines, 3-octave HDR bloom & physics spark trails',
     accentFrom: '#38bdf8',
     accentTo: '#fb923c',
     patch: {
@@ -201,7 +242,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       showMeasureGrid: true,
       showChordLabels: true,
       perspectiveTilt: 0.58,
-      showHands: true,
+      showHands: false,
       bloomIntensity: 1.52,
       bloomRadius: 1.38,
       bloomThreshold: 0.24,
@@ -211,6 +252,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.45,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.15,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
       fluidSilkEnabled: true,
       sparksEnabled: true,
       stardustEnabled: true,
@@ -225,6 +268,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
     id: 'embers-stardust',
     name: 'Embers Stardust',
     subtitle: 'Viên pha lê cắt cạnh tím-vàng + lụa khói Curl-Noise & tia lửa vật lý',
+    subtitleEn: 'Cut amber-violet crystal gems with curl-noise silk plumes & plasma edge',
     accentFrom: '#ff9640',
     accentTo: '#9b6dff',
     patch: {
@@ -237,6 +281,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       noteGlowIntensity: 0.9,
       showNoteLabels: false,
       showMeasureGrid: false,
+      showHands: false,
       bloomIntensity: 1.58,
       bloomRadius: 1.45,
       bloomThreshold: 0.22,
@@ -246,6 +291,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.42,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.18,
+      eqSpectrumEnabled: false,
+      mirrorReflectionEnabled: true,
       fluidSilkEnabled: true,
       sparksEnabled: true,
       stardustEnabled: true,
@@ -260,6 +307,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
     id: 'arctic-silk',
     name: 'Arctic Silk',
     subtitle: 'Khói băng xanh huyền ảo + thanh kính 3D phát quang & anamorphic flare',
+    subtitleEn: 'Ethereal glacier-blue smoke ribbons, 3D glass bars & concert flares',
     accentFrom: '#38bdf8',
     accentTo: '#fde047',
     patch: {
@@ -272,6 +320,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       noteGlowIntensity: 0.88,
       showNoteLabels: false,
       showMeasureGrid: false,
+      showHands: false,
       bloomIntensity: 1.65,
       bloomRadius: 1.55,
       bloomThreshold: 0.22,
@@ -281,6 +330,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.58,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.05,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
       fluidSilkEnabled: true,
       sparksEnabled: true,
       stardustEnabled: true,
@@ -295,6 +346,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
     id: 'neon-highway-3d',
     name: 'Neon Highway 3D (Dual)',
     subtitle: '3D nghiêng 2 màu Cam-Tím + nốt viền neon tên nốt & nền Cực Quang',
+    subtitleEn: 'Tilted 3D amber-violet neon highway with chord badges & aurora sky',
     accentFrom: '#f97316',
     accentTo: '#c084fc',
     patch: {
@@ -309,7 +361,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       showMeasureGrid: true,
       showChordLabels: true,
       perspectiveTilt: 0.6,
-      showHands: true,
+      showHands: false,
       bloomIntensity: 1.48,
       bloomRadius: 1.35,
       bloomThreshold: 0.24,
@@ -319,6 +371,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.42,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.12,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
       fluidSilkEnabled: true,
       sparksEnabled: true,
       stardustEnabled: true,
@@ -333,6 +387,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
     id: 'cyber-plasma',
     name: 'Cyber Plasma 3D',
     subtitle: 'Tia năng lượng cực đại + Bloom 185% & tia lửa bắn nảy dày đặc',
+    subtitleEn: 'High-energy plasma beams, 185% bloom & explosive bouncing spark showers',
     accentFrom: '#06b6d4',
     accentTo: '#f43f5e',
     patch: {
@@ -344,6 +399,7 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       showNoteLabels: false,
       showMeasureGrid: true,
       showChordLabels: true,
+      showHands: false,
       bloomIntensity: 1.85,
       bloomRadius: 1.65,
       bloomThreshold: 0.2,
@@ -353,6 +409,8 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.6,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.35,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
       fluidSilkEnabled: true,
       sparksEnabled: true,
       stardustEnabled: true,

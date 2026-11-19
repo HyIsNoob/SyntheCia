@@ -1,39 +1,78 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioEngine, type SampleLoadState } from './audio/AudioEngine';
+import { getTranslations } from './i18n/translations';
 import { DEMO_SONGS } from './midi/DemoSongs';
 import { parseMidiBuffer } from './midi/MidiParser';
+import { isMagicTriggerKey, qwertyCodeToMidi } from './midi/QwertyPiano';
+import { WebMidiController, type MidiDeviceInfo } from './midi/WebMidiInput';
 import {
   DEFAULT_SETTINGS,
   VISUAL_PRESETS,
   type ParsedMidi,
+  type PlayMode,
+  type TrackOverride,
   type VisualizerSettings,
 } from './types/visualizer';
 import { CleanModeOverlay } from './ui/CleanModeOverlay';
 import { InspectorDrawer } from './ui/InspectorDrawer';
 import { TopBar } from './ui/TopBar';
 import { TransportBar } from './ui/TransportBar';
-import { VisualizerStage, type VisualizerStageHandle } from './ui/VisualizerStage';
+import {
+  VisualizerStage,
+  type PerfStats,
+  type VisualizerStageHandle,
+} from './ui/VisualizerStage';
 import { downloadRecording, VideoExporter } from './video/VideoExporter';
+
+const STORAGE_KEY = 'synthecia.studio.v2.settings';
+
+function loadSavedSettings(): VisualizerSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<VisualizerSettings>;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      // Blob object URLs don't survive page reloads
+      customBgUrl: null,
+      backgroundPreset:
+        parsed.backgroundPreset === 'custom'
+          ? DEFAULT_SETTINGS.backgroundPreset
+          : (parsed.backgroundPreset ?? DEFAULT_SETTINGS.backgroundPreset),
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
 
 export const App: React.FC = () => {
   const audioEngine = useMemo(() => new AudioEngine(), []);
   const exporter = useMemo(() => new VideoExporter(), []);
   const stageRef = useRef<VisualizerStageHandle | null>(null);
 
-  const [settings, setSettings] = useState<VisualizerSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<VisualizerSettings>(loadSavedSettings);
   const [activePresetId, setActivePresetId] = useState<string | null>('rainbow-neon-3d');
   const [activeDemoId, setActiveDemoId] = useState<string | null>(DEMO_SONGS[0].id);
   const [midi, setMidi] = useState<ParsedMidi | null>(() => DEMO_SONGS[0].build());
+  const [trackOverrides, setTrackOverrides] = useState<Record<number, TrackOverride>>({});
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playMode, setPlayMode] = useState<PlayMode>('auto');
+  const [qwertyOctaveShift, setQwertyOctaveShift] = useState(0);
+  const [magicProgress, setMagicProgress] = useState({ stepIndex: 0, totalSteps: 0 });
+
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopA, setLoopA] = useState<number | null>(null);
+  const [loopB, setLoopB] = useState<number | null>(null);
 
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [cleanMode, setCleanMode] = useState(false);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [isWebGL2, setIsWebGL2] = useState(true);
+  const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSec, setRecordingSec] = useState(0);
@@ -43,12 +82,20 @@ export const App: React.FC = () => {
   const [sampleProgress, setSampleProgress] = useState({ loaded: 0, total: 20 });
   const [customAudioName, setCustomAudioName] = useState<string | null>(null);
 
+  const usbMidiSupported = useMemo(() => WebMidiController.isSupported(), []);
+  const [usbMidiConnected, setUsbMidiConnected] = useState(false);
+  const [usbMidiDevices, setUsbMidiDevices] = useState<MidiDeviceInfo[]>([]);
+  const webMidiRef = useRef<WebMidiController | null>(null);
+
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const toastTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
   const prevCleanBeforeRecRef = useRef(false);
+  const heldQwertyRef = useRef<Map<string, number>>(new Map());
+
+  const t = getTranslations(settings.language);
 
   const showToast = useCallback((msg: string, durationMs = 2800) => {
     setToastMsg(msg);
@@ -56,13 +103,33 @@ export const App: React.FC = () => {
     toastTimerRef.current = window.setTimeout(() => setToastMsg(null), durationMs);
   }, []);
 
-  // Wire audio engine listeners & parameter sync
+  // Auto-save settings to localStorage (excluding transient customBgUrl blob)
+  useEffect(() => {
+    try {
+      const toSave = { ...settings, customBgUrl: null };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [settings]);
+
+  // Wire audio engine & Web MIDI controller
   useEffect(() => {
     audioEngine.setSampleStateListener((state, loaded, total) => {
       setSampleState(state);
       setSampleProgress({ loaded, total });
     });
+
+    const midiCtrl = new WebMidiController({
+      onNoteOn: (m, vel) => stageRef.current?.pressLiveNote(m, vel, 'usb-midi'),
+      onNoteOff: (m) => stageRef.current?.releaseLiveNote(m, 'usb-midi'),
+      onSustainChange: (down) => stageRef.current?.setLiveSustain(down),
+      onDevicesChange: (devices) => setUsbMidiDevices(devices),
+    });
+    webMidiRef.current = midiCtrl;
+
     return () => {
+      midiCtrl.disconnect();
       audioEngine.dispose();
     };
   }, [audioEngine]);
@@ -92,7 +159,7 @@ export const App: React.FC = () => {
     return () => window.clearInterval(id);
   }, [isRecording]);
 
-  // Auto-hide cursor after 1.5s of mouse inactivity in Clean Video Mode
+  // Auto-hide cursor after 1.4s in Clean Video Mode
   useEffect(() => {
     if (!cleanMode) {
       setCursorHidden(false);
@@ -116,18 +183,63 @@ export const App: React.FC = () => {
     setActivePresetId(null);
   }, []);
 
-  const applyPreset = useCallback((presetId: string) => {
-    const preset = VISUAL_PRESETS.find((p) => p.id === presetId);
-    if (!preset) return;
-    setSettings((prev) => ({
-      ...prev,
-      ...preset.patch,
-      // Keep user's custom uploaded background if they had one active and didn't clear it
-      customBgUrl: prev.customBgUrl,
-    }));
-    setActivePresetId(presetId);
-    showToast(`Đã áp dụng preset "${preset.name}"`);
-  }, [showToast]);
+  const applyPreset = useCallback(
+    (presetId: string) => {
+      const preset = VISUAL_PRESETS.find((p) => p.id === presetId);
+      if (!preset) return;
+      setSettings((prev) => ({
+        ...prev,
+        ...preset.patch,
+        customBgUrl: prev.customBgUrl,
+      }));
+      setActivePresetId(presetId);
+      showToast(`Preset: "${preset.name}"`);
+    },
+    [showToast]
+  );
+
+  const handleExportPresetJson = useCallback(() => {
+    const payload = {
+      app: 'SyntheCia Studio',
+      version: 2,
+      settings: { ...settings, customBgUrl: null },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `synthecia-preset-${Date.now()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast(settings.language === 'en' ? 'Exported preset JSON!' : 'Đã xuất file preset .json!');
+  }, [settings, showToast]);
+
+  const handleImportPresetJson = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text) as { settings?: Partial<VisualizerSettings> } & Partial<VisualizerSettings>;
+        const imported = data.settings ?? data;
+        setSettings((prev) => ({
+          ...prev,
+          ...imported,
+          customBgUrl: prev.customBgUrl,
+        }));
+        setActivePresetId(null);
+        showToast(
+          settings.language === 'en'
+            ? `Imported preset "${file.name}"`
+            : `Đã nhập preset "${file.name}"`
+        );
+      } catch {
+        showToast(
+          settings.language === 'en' ? 'Invalid preset JSON file.' : 'File preset JSON không hợp lệ.',
+          3200
+        );
+      }
+    },
+    [settings.language, showToast]
+  );
 
   const handleSelectDemo = useCallback(
     (demoId: string) => {
@@ -136,9 +248,12 @@ export const App: React.FC = () => {
       audioEngine.stopAllNotes();
       setIsPlaying(false);
       setActiveDemoId(demo.id);
+      setTrackOverrides({});
+      setLoopA(null);
+      setLoopB(null);
       setMidi(demo.build());
       setCurrentTime(0);
-      showToast(`Đã nạp bài demo: ${demo.title}`);
+      showToast(`${demo.title} (${demo.bpm} BPM)`);
     },
     [audioEngine, showToast]
   );
@@ -149,21 +264,84 @@ export const App: React.FC = () => {
         const buffer = await file.arrayBuffer();
         const parsed = parseMidiBuffer(buffer, file.name);
         if (parsed.notes.length === 0) {
-          showToast('File MIDI này không có nốt piano hợp lệ!', 3500);
+          showToast(
+            settings.language === 'en'
+              ? 'No playable piano notes found in this MIDI file!'
+              : 'File MIDI này không có nốt piano hợp lệ!',
+            3500
+          );
           return;
         }
         audioEngine.stopAllNotes();
         setIsPlaying(false);
         setActiveDemoId(null);
+        setTrackOverrides({});
+        setLoopA(null);
+        setLoopB(null);
         setMidi(parsed);
         setCurrentTime(0);
-        showToast(`Đã tải "${parsed.name}" (${parsed.notes.length} nốt • ${parsed.bpm} BPM)`);
+        showToast(`${parsed.name} (${parsed.notes.length} ${t.notesUnit} • ${parsed.bpm} BPM)`);
       } catch {
-        showToast('Không thể đọc file MIDI. Hãy thử file .mid hợp lệ.', 3500);
+        showToast(
+          settings.language === 'en'
+            ? 'Could not parse this MIDI file.'
+            : 'Không thể đọc file MIDI. Hãy thử file .mid hợp lệ.',
+          3500
+        );
       }
     },
-    [audioEngine, showToast]
+    [audioEngine, settings.language, showToast, t.notesUnit]
   );
+
+  const handleUpdateTrackOverride = useCallback((trackIndex: number, patch: Partial<TrackOverride>) => {
+    setTrackOverrides((prev) => ({
+      ...prev,
+      [trackIndex]: { ...(prev[trackIndex] ?? {}), ...patch },
+    }));
+  }, []);
+
+  const handleChangePlayMode = useCallback(
+    (mode: PlayMode) => {
+      setPlayMode(mode);
+      if (mode === 'magic-keys') {
+        setIsPlaying(false);
+        audioEngine.ensureInitialized();
+        showToast(t.magicHint, 4200);
+      } else if (mode === 'qwerty') {
+        setIsPlaying(false);
+        audioEngine.ensureInitialized();
+        showToast(t.qwertyHint, 4200);
+      } else {
+        showToast(settings.language === 'en' ? 'Auto Play mode' : 'Đã về chế độ Phát tự động');
+      }
+    },
+    [audioEngine, settings.language, showToast, t.magicHint, t.qwertyHint]
+  );
+
+  const handleToggleUsbMidi = useCallback(async () => {
+    const ctrl = webMidiRef.current;
+    if (!ctrl) return;
+    if (usbMidiConnected) {
+      ctrl.disconnect();
+      setUsbMidiConnected(false);
+      showToast(settings.language === 'en' ? 'USB MIDI disconnected' : 'Đã ngắt kết nối MIDI USB');
+      return;
+    }
+    audioEngine.ensureInitialized();
+    const res = await ctrl.connect();
+    if (res.ok) {
+      setUsbMidiConnected(true);
+      setUsbMidiDevices(res.devices);
+      showToast(
+        res.devices.length > 0
+          ? `USB MIDI: ${res.devices[0].name}`
+          : t.usbMidiNone,
+        3500
+      );
+    } else {
+      showToast(res.error ?? 'Web MIDI error', 3800);
+    }
+  }, [audioEngine, settings.language, showToast, t.usbMidiNone, usbMidiConnected]);
 
   const handleUploadBackground = useCallback(
     (file: File) => {
@@ -177,22 +355,17 @@ export const App: React.FC = () => {
           bgOpacity: Math.max(prev.bgOpacity, 0.72),
         };
       });
-      showToast(`Đã đổi ảnh nền: ${file.name}`);
+      showToast(`${settings.language === 'en' ? 'Backdrop' : 'Ảnh nền'}: ${file.name}`);
     },
-    [showToast]
+    [settings.language, showToast]
   );
 
   const handleClearBackground = useCallback(() => {
     setSettings((prev) => {
       if (prev.customBgUrl) URL.revokeObjectURL(prev.customBgUrl);
-      return {
-        ...prev,
-        backgroundPreset: 'nebula',
-        customBgUrl: null,
-      };
+      return { ...prev, backgroundPreset: 'nebula', customBgUrl: null };
     });
-    showToast('Đã gỡ ảnh nền custom');
-  }, [showToast]);
+  }, []);
 
   const handleUploadCustomAudio = useCallback(
     async (file: File) => {
@@ -200,12 +373,12 @@ export const App: React.FC = () => {
         await audioEngine.loadCustomAudioFile(file);
         setCustomAudioName(file.name);
         setSettings((prev) => ({ ...prev, audioMode: 'custom-audio' }));
-        showToast(`Đã đồng bộ file nhạc: ${file.name}`);
+        showToast(`${settings.language === 'en' ? 'Synced audio' : 'Đã đồng bộ nhạc'}: ${file.name}`);
       } catch {
-        showToast('Không thể giải mã file âm thanh này.', 3500);
+        showToast('Could not decode audio file.', 3500);
       }
     },
-    [audioEngine, showToast]
+    [audioEngine, settings.language, showToast]
   );
 
   const handleClearCustomAudio = useCallback(() => {
@@ -217,32 +390,61 @@ export const App: React.FC = () => {
     }));
   }, [audioEngine]);
 
+  const handleCycleABLoop = useCallback(() => {
+    if (!midi) return;
+    if (loopA === null) {
+      setLoopA(currentTime);
+      setLoopB(null);
+      showToast(`A = ${currentTime.toFixed(1)}s`);
+    } else if (loopB === null) {
+      if (currentTime > loopA + 0.3) {
+        setLoopB(currentTime);
+        showToast(`A-B Loop: ${loopA.toFixed(1)}s ↔ ${currentTime.toFixed(1)}s`);
+      } else {
+        setLoopA(currentTime);
+        showToast(`A = ${currentTime.toFixed(1)}s`);
+      }
+    } else {
+      setLoopA(null);
+      setLoopB(null);
+      showToast(settings.language === 'en' ? 'Cleared A-B loop' : 'Đã xóa vòng lặp A-B');
+    }
+  }, [currentTime, loopA, loopB, midi, settings.language, showToast]);
+
   const startActualRecording = useCallback(() => {
     const canvas = stageRef.current?.getCanvas();
     if (!canvas) return;
 
-    if (settings.recordAutoStart) {
+    if (settings.recordAutoStart && playMode === 'auto') {
       stageRef.current?.seekTo(0);
       stageRef.current?.clearVisuals();
     }
 
     const audioStream = audioEngine.getRecordStream();
     setIsRecording(true);
-    setIsPlaying(true);
+    if (playMode === 'auto') setIsPlaying(true);
 
     exporter.start(canvas, audioStream, settings.recordBitrateMbps, (result) => {
       setIsRecording(false);
       setCleanMode(prevCleanBeforeRecRef.current);
       downloadRecording(result, midi?.name ?? 'synthecia');
       showToast(
-        `Đã lưu video sạch (${result.durationSec.toFixed(1)}s • .${result.extension.toUpperCase()})!`,
+        `${settings.language === 'en' ? 'Saved clean video' : 'Đã lưu video sạch'} (${result.durationSec.toFixed(1)}s • .${result.extension.toUpperCase()})!`,
         4000
       );
     });
-  }, [audioEngine, exporter, midi?.name, settings.recordAutoStart, settings.recordBitrateMbps, showToast]);
+  }, [
+    audioEngine,
+    exporter,
+    midi?.name,
+    playMode,
+    settings.language,
+    settings.recordAutoStart,
+    settings.recordBitrateMbps,
+    showToast,
+  ]);
 
   const handleToggleRecording = useCallback(() => {
-    // Cancel pending countdown
     if (countdown !== null) {
       if (countdownTimerRef.current) window.clearTimeout(countdownTimerRef.current);
       setCountdown(null);
@@ -257,18 +459,18 @@ export const App: React.FC = () => {
     }
 
     if (typeof MediaRecorder === 'undefined') {
-      showToast('Trình duyệt không hỗ trợ ghi hình trực tiếp. Hãy dùng Clean Video Mode + OBS!', 4000);
+      showToast('Direct recording unsupported — use Clean Video Mode + OBS!', 4000);
       return;
     }
 
     prevCleanBeforeRecRef.current = cleanMode;
     setInspectorOpen(false);
-    setCleanMode(true); // Automatically hide ALL UI for a 100% clean recording!
+    setCleanMode(true);
     audioEngine.ensureInitialized();
 
     if (settings.recordCountdown) {
       setIsPlaying(false);
-      if (settings.recordAutoStart) {
+      if (settings.recordAutoStart && playMode === 'auto') {
         stageRef.current?.seekTo(0);
       }
       setCountdown(3);
@@ -280,7 +482,6 @@ export const App: React.FC = () => {
           countdownTimerRef.current = window.setTimeout(step, 850);
         } else {
           setCountdown(null);
-          // Give 1 frame for countdown overlay to fully unmount before capture begins
           requestAnimationFrame(() => startActualRecording());
         }
       };
@@ -294,6 +495,7 @@ export const App: React.FC = () => {
     countdown,
     exporter,
     isRecording,
+    playMode,
     settings.recordAutoStart,
     settings.recordCountdown,
     showToast,
@@ -303,11 +505,8 @@ export const App: React.FC = () => {
   const handleSongEnded = useCallback(() => {
     setIsPlaying(false);
     if (isRecording && settings.recordAutoStop) {
-      // Hold 0.9s after final note so trailing glow & fluid particles finish gracefully
       window.setTimeout(() => {
-        if (exporter.isRecording()) {
-          exporter.stop();
-        }
+        if (exporter.isRecording()) exporter.stop();
       }, 900);
     }
   }, [exporter, isRecording, settings.recordAutoStop]);
@@ -320,11 +519,14 @@ export const App: React.FC = () => {
     a.href = dataUrl;
     a.download = `synthecia-frame-${Date.now()}.png`;
     a.click();
-    showToast('Đã chụp & tải ảnh khung hình PNG!');
-  }, [showToast]);
+    showToast(settings.language === 'en' ? 'Snapshot PNG saved!' : 'Đã lưu ảnh khung hình PNG!');
+  }, [settings.language, showToast]);
 
   const handleTogglePlay = useCallback(() => {
     if (!midi) return;
+    if (playMode !== 'auto') {
+      setPlayMode('auto');
+    }
     audioEngine.ensureInitialized();
     setIsPlaying((prev) => {
       if (!prev && currentTime >= midi.duration - 0.15) {
@@ -332,21 +534,17 @@ export const App: React.FC = () => {
       }
       return !prev;
     });
-  }, [audioEngine, currentTime, midi]);
+  }, [audioEngine, currentTime, midi, playMode]);
 
-  // Global keyboard shortcuts (Space, V, Esc, R, Arrows)
+  // Global keyboard handler: Magic Keys ("Giả bấm") + QWERTY Piano + Studio Shortcuts!
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        handleTogglePlay();
-      } else if (e.key === 'v' || e.key === 'V') {
-        e.preventDefault();
-        setCleanMode((v) => !v);
-      } else if (e.key === 'Escape') {
+      // Always allow Escape to exit Clean Mode / Recording / Drawer
+      if (e.key === 'Escape') {
         if (isRecording) {
           exporter.stop();
           setIsPlaying(false);
@@ -355,6 +553,52 @@ export const App: React.FC = () => {
         } else if (inspectorOpen) {
           setInspectorOpen(false);
         }
+        return;
+      }
+
+      // Shift acts as live Sustain Pedal in Magic Keys / QWERTY modes!
+      if (e.key === 'Shift' && playMode !== 'auto') {
+        stageRef.current?.setLiveSustain(true);
+        return;
+      }
+
+      // 1. MAGIC KEYS ("Giả bấm") MODE: ANY letter/number key triggers the exact next MIDI chord!
+      if (playMode === 'magic-keys' && isMagicTriggerKey(e.code)) {
+        e.preventDefault();
+        if (e.repeat) return;
+        stageRef.current?.triggerMagicKeyDown(e.code);
+        return;
+      }
+
+      // 2. QWERTY PIANO MODE: Play live notes across 2+ octaves on computer keyboard!
+      if (playMode === 'qwerty') {
+        if (e.code === 'BracketLeft') {
+          e.preventDefault();
+          setQwertyOctaveShift((s) => Math.max(-2, s - 1));
+          return;
+        }
+        if (e.code === 'BracketRight') {
+          e.preventDefault();
+          setQwertyOctaveShift((s) => Math.min(2, s + 1));
+          return;
+        }
+        const midiKey = qwertyCodeToMidi(e.code, qwertyOctaveShift);
+        if (midiKey !== null) {
+          e.preventDefault();
+          if (e.repeat) return;
+          heldQwertyRef.current.set(e.code, midiKey);
+          stageRef.current?.pressLiveNote(midiKey, 0.85, e.code);
+          return;
+        }
+      }
+
+      // 3. Standard Studio Hotkeys
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleTogglePlay();
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        setCleanMode((v) => !v);
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         handleToggleRecording();
@@ -367,11 +611,40 @@ export const App: React.FC = () => {
       }
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cleanMode, currentTime, exporter, handleTogglePlay, handleToggleRecording, inspectorOpen, isRecording]);
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        stageRef.current?.setLiveSustain(false);
+        return;
+      }
+      if (playMode === 'magic-keys') {
+        stageRef.current?.triggerMagicKeyUp(e.code);
+      }
+      const heldMidi = heldQwertyRef.current.get(e.code);
+      if (heldMidi !== undefined) {
+        heldQwertyRef.current.delete(e.code);
+        stageRef.current?.releaseLiveNote(heldMidi, e.code);
+      }
+    };
 
-  // Global Drag & Drop for MIDI, Custom Background Images, and Custom Audio
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [
+    cleanMode,
+    currentTime,
+    exporter,
+    handleTogglePlay,
+    handleToggleRecording,
+    inspectorOpen,
+    isRecording,
+    playMode,
+    qwertyOctaveShift,
+  ]);
+
+  // Global Drag & Drop for MIDI, Custom Background Images, Audio, and Preset JSON
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     if (!isDraggingFile) setIsDraggingFile(true);
@@ -389,12 +662,14 @@ export const App: React.FC = () => {
     const lower = file.name.toLowerCase();
     if (lower.endsWith('.mid') || lower.endsWith('.midi')) {
       void handleUploadMidi(file);
+    } else if (lower.endsWith('.json')) {
+      void handleImportPresetJson(file);
     } else if (file.type.startsWith('image/')) {
       handleUploadBackground(file);
     } else if (file.type.startsWith('audio/')) {
       void handleUploadCustomAudio(file);
     } else {
-      showToast('Hỗ trợ kéo thả: file MIDI (.mid), ảnh nền (.png/.jpg), hoặc nhạc (.mp3/.wav)', 3500);
+      showToast(t.dropOverlayDesc, 3500);
     }
   };
 
@@ -411,15 +686,21 @@ export const App: React.FC = () => {
       <VisualizerStage
         midi={midi}
         isPlaying={isPlaying}
+        playMode={playMode}
         playbackSpeed={playbackSpeed}
         loopEnabled={loopEnabled}
+        loopA={loopA}
+        loopB={loopB}
         settings={settings}
+        trackOverrides={trackOverrides}
         audioEngine={audioEngine}
         cleanMode={cleanMode}
         stageRef={stageRef}
         onTimeUpdate={setCurrentTime}
         onSongEnded={handleSongEnded}
         onEngineReady={setIsWebGL2}
+        onPerfStats={setPerfStats}
+        onMagicProgress={(stepIndex, totalSteps) => setMagicProgress({ stepIndex, totalSteps })}
       />
 
       {/* Studio Chrome (100% Hidden in Clean Video Mode) */}
@@ -429,13 +710,16 @@ export const App: React.FC = () => {
             midi={midi}
             activeDemoId={activeDemoId}
             settings={settings}
+            playMode={playMode}
             inspectorOpen={inspectorOpen}
             isRecording={isRecording}
             recordingSec={recordingSec}
             isWebGL2={isWebGL2}
+            usbMidiCount={usbMidiDevices.length}
             onSelectDemo={handleSelectDemo}
             onUploadMidi={(f) => void handleUploadMidi(f)}
             onUpdateSettings={updateSettings}
+            onChangePlayMode={handleChangePlayMode}
             onToggleInspector={() => setInspectorOpen((v) => !v)}
             onEnterCleanMode={() => {
               setInspectorOpen(false);
@@ -444,37 +728,102 @@ export const App: React.FC = () => {
             onToggleRecording={handleToggleRecording}
           />
 
+          {/* Optional Live Performance Telemetry Pill (never shown in Clean Video Mode) */}
+          {settings.showPerfStats && perfStats && (
+            <div className="fixed top-16 left-3 z-20 px-2.5 py-1 rounded-lg bg-slate-950/75 backdrop-blur-md border border-white/10 text-[10px] font-mono text-slate-300 flex items-center gap-2 pointer-events-none">
+              <span className="text-emerald-400 font-bold">{perfStats.fps} FPS</span>
+              <span>•</span>
+              <span>{perfStats.particles.toLocaleString()} pts</span>
+              <span>•</span>
+              <span>{perfStats.isWebGL2 ? 'WebGL2' : '2D'}</span>
+            </div>
+          )}
+
+          {/* Subtle Active Play Mode Banner (Magic Keys / QWERTY) */}
+          {playMode !== 'auto' && !toastMsg && (
+            <div className="fixed top-16 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-xl border border-amber-400/35 text-[11px] text-amber-100 shadow-lg flex items-center gap-2.5">
+              {playMode === 'magic-keys' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span>
+                    {settings.language === 'en'
+                      ? 'Magic Keys — Tap ANY key to play the MIDI song!'
+                      : 'Giả bấm (Magic Keys) — Gõ bất kỳ phím nào để chơi bài MIDI theo nhịp!'}
+                  </span>
+                  <span className="font-mono text-amber-300 font-semibold">
+                    {magicProgress.stepIndex}/{magicProgress.totalSteps}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>
+                    {settings.language === 'en'
+                      ? `QWERTY Piano (C${4 + qwertyOctaveShift}) — Z–M & Q–P • [ / ] Octave`
+                      : `Đàn QWERTY (C${4 + qwertyOctaveShift}) — Z–M & Q–P • [ / ] Đổi quãng`}
+                  </span>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => handleChangePlayMode('auto')}
+                className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+              >
+                {settings.language === 'en' ? 'Exit' : 'Tắt'}
+              </button>
+            </div>
+          )}
+
           <TransportBar
             midi={midi}
             currentTime={currentTime}
             isPlaying={isPlaying}
             playbackSpeed={playbackSpeed}
             loopEnabled={loopEnabled}
+            loopA={loopA}
+            loopB={loopB}
             volume={settings.masterVolume}
             pianoHeightRatio={settings.pianoHeightRatio}
             inspectorOpen={inspectorOpen}
+            language={settings.language}
             onTogglePlay={handleTogglePlay}
-            onSeek={(t) => stageRef.current?.seekTo(t)}
+            onSeek={(tSec) => stageRef.current?.seekTo(tSec)}
             onRestart={() => {
               stageRef.current?.seekTo(0);
-              setIsPlaying(true);
+              if (playMode === 'auto') setIsPlaying(true);
             }}
             onChangeSpeed={setPlaybackSpeed}
             onToggleLoop={() => setLoopEnabled((v) => !v)}
+            onCycleABLoop={handleCycleABLoop}
             onChangeVolume={(v) => updateSettings({ masterVolume: v })}
           />
 
           <InspectorDrawer
             open={inspectorOpen}
+            midi={midi}
             settings={settings}
             activePresetId={activePresetId}
+            playMode={playMode}
+            qwertyOctaveShift={qwertyOctaveShift}
+            magicProgress={magicProgress}
+            trackOverrides={trackOverrides}
             sampleState={sampleState}
             sampleProgress={sampleProgress}
             customAudioName={customAudioName}
+            usbMidiSupported={usbMidiSupported}
+            usbMidiConnected={usbMidiConnected}
+            usbMidiDevices={usbMidiDevices}
             isRecording={isRecording}
             onClose={() => setInspectorOpen(false)}
             onUpdateSettings={updateSettings}
             onApplyPreset={applyPreset}
+            onExportPresetJson={handleExportPresetJson}
+            onImportPresetJson={(f) => void handleImportPresetJson(f)}
+            onUpdateTrackOverride={handleUpdateTrackOverride}
+            onResetTrackOverrides={() => setTrackOverrides({})}
+            onChangePlayMode={handleChangePlayMode}
+            onChangeQwertyOctave={setQwertyOctaveShift}
+            onToggleUsbMidi={() => void handleToggleUsbMidi()}
             onUploadBackground={handleUploadBackground}
             onClearBackground={handleClearBackground}
             onUploadCustomAudio={(f) => void handleUploadCustomAudio(f)}
@@ -494,6 +843,7 @@ export const App: React.FC = () => {
         cleanMode={cleanMode}
         isRecording={isRecording}
         countdown={countdown}
+        language={settings.language}
         onExitCleanMode={() => setCleanMode(false)}
       />
 
@@ -502,20 +852,16 @@ export const App: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-6 pointer-events-none">
           <div className="max-w-md w-full rounded-3xl border-2 border-dashed border-violet-400/70 bg-violet-950/30 p-10 text-center shadow-[0_0_60px_rgba(139,92,246,0.35)]">
             <div className="text-xl font-bold text-white font-[var(--font-display)]">
-              Thả file vào đây
+              {t.dropOverlayTitle}
             </div>
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              Hỗ trợ file <strong className="text-violet-300">.mid / .midi</strong>, ảnh nền custom{' '}
-              <strong className="text-cyan-300">.jpg / .png / .webp</strong>, hoặc file nhạc đồng bộ{' '}
-              <strong className="text-amber-300">.mp3 / .wav</strong>.
-            </p>
+            <p className="text-xs text-slate-300 mt-2 leading-relaxed">{t.dropOverlayDesc}</p>
           </div>
         </div>
       )}
 
-      {/* Subtle Toast Notifications (never shown while recording) */}
+      {/* Subtle Toast Notifications (never shown while recording or in Clean Mode) */}
       {toastMsg && !isRecording && !cleanMode && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-slate-950/85 backdrop-blur-xl border border-violet-400/35 text-xs font-medium text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] pointer-events-none">
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-slate-950/88 backdrop-blur-xl border border-violet-400/35 text-xs font-medium text-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] pointer-events-none">
           {toastMsg}
         </div>
       )}

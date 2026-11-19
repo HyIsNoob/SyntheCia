@@ -1,4 +1,4 @@
-import type { ColorMode, MidiNoteEvent, VisualizerSettings } from '../types/visualizer';
+import type { ColorMode, MidiNoteEvent, TrackOverride, VisualizerSettings } from '../types/visualizer';
 
 export interface RGB {
   r: number; // 0..255
@@ -90,11 +90,17 @@ export function lightenRgb(rgb: RGB, amount: number): RGB {
 
 export function resolveNoteColor(
   note: Pick<MidiNoteEvent, 'midi' | 'hand' | 'velocity' | 'trackIndex'>,
-  settings: Pick<VisualizerSettings, 'colorMode' | 'leftHandColor' | 'rightHandColor'>
+  settings: Pick<VisualizerSettings, 'colorMode' | 'leftHandColor' | 'rightHandColor'>,
+  trackOverrides?: Readonly<Record<number, TrackOverride>>
 ): RGB {
+  const override = trackOverrides?.[note.trackIndex];
+  if (override?.color) {
+    return hexToRgb(override.color);
+  }
+  const effectiveHand = override?.hand ?? note.hand;
   const mode: ColorMode = settings.colorMode;
   if (mode === 'dual-hand') {
-    return hexToRgb(note.hand === 'left' ? settings.leftHandColor : settings.rightHandColor);
+    return hexToRgb(effectiveHand === 'left' ? settings.leftHandColor : settings.rightHandColor);
   }
   if (mode === 'rainbow') {
     // AAA Neon Rainbow Spectrum across the 88-key range:

@@ -481,29 +481,64 @@ export class VirtualHandsController {
       ctx.closePath();
     };
 
-    // 1. Soft Overhead Cast Shadow onto Piano Keys (Realistic mode)
-    if (style === 'realistic') {
+    // STYLE 1: 'aura' — Minimalist AAA Energy Fingertips & Ethereal Constellation Arcs (no cheesy 2D skin!)
+    if (style === 'aura') {
       ctx.save();
-      ctx.translate(3, 6);
-      tracePalmShape();
-      ctx.fillStyle = 'rgba(2, 4, 12, 0.34)';
-      ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+
+      // Subtle curved energy bridge linking active fingertips
+      ctx.strokeStyle = rgbToCss(themeColor, 0.24 + maxGlow * 0.26);
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
       for (let f = 0; f < 5; f++) {
-        const kn = knuckles[f];
         const tp = tips[f];
-        const lift = (1 - tp.press) * 4.5 + 1.5;
-        ctx.strokeStyle = `rgba(2, 4, 12, ${(0.28 - (1 - tp.press) * 0.08).toFixed(3)})`;
-        ctx.lineWidth = tp.fw * 1.04;
-        ctx.lineCap = 'round';
+        if (f === 0) ctx.moveTo(tp.x, tp.y);
+        else ctx.lineTo(tp.x, tp.y);
+      }
+      ctx.stroke();
+
+      // Delicate glowing energy nodes on each fingertip (pulsing & expanding when striking!)
+      for (let f = 0; f < 5; f++) {
+        const fg = hand.fingers[f];
+        const tp = tips[f];
+        const col = fg.glowIntensity > 0.12 ? fg.glowColor : themeColor;
+        const r = tp.fw * (0.42 + tp.press * 0.45);
+
+        // Soft energy tether down to wrist shadow
+        const tether = ctx.createLinearGradient(tp.x, tp.y, palmCx, hitLineY + pianoHeight);
+        tether.addColorStop(0, rgbToCss(col, 0.25 + tp.press * 0.4));
+        tether.addColorStop(1, rgbToCss(col, 0));
+        ctx.strokeStyle = tether;
+        ctx.lineWidth = Math.max(1.2, tp.fw * 0.25);
         ctx.beginPath();
-        ctx.moveTo(kn.x, kn.y + lift * 0.4);
-        ctx.lineTo(tp.x, tp.y + lift * 0.7);
+        ctx.moveTo(tp.x, tp.y);
+        ctx.quadraticCurveTo(knuckles[f].x, knuckles[f].y, palmCx, hitLineY + pianoHeight);
+        ctx.stroke();
+
+        // Luminous fingertip halo
+        const glow = ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, r * 2.4);
+        glow.addColorStop(0, rgbToCss(lightenRgb(col, 0.65), 0.78 * (0.35 + tp.press * 0.65)));
+        glow.addColorStop(0.45, rgbToCss(col, 0.35 * (0.3 + tp.press * 0.7)));
+        glow.addColorStop(1, rgbToCss(col, 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, r * 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Crisp concentric ring when pressing
+        ctx.strokeStyle = rgbToCss(lightenRgb(col, 0.6), 0.45 + tp.press * 0.55);
+        ctx.lineWidth = tp.press > 0.3 ? 1.6 : 1.0;
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, r * 0.85, 0, Math.PI * 2);
         ctx.stroke();
       }
+
       ctx.restore();
+      ctx.restore();
+      return;
     }
 
-    // 2. Sculpted 2-Segment Articulated Fingers (drawn smoothly emerging from knuckles)
+    // STYLES 2 & 3: 'hologram' & 'neon-wire' — Clean translucent cyber silhouettes
     for (let f = 0; f < 5; f++) {
       const fg = hand.fingers[f];
       const kn = knuckles[f];
@@ -515,11 +550,10 @@ export class VirtualHandsController {
       const nx = -dy / len;
       const ny = dx / len;
 
-      const baseHalfW = tp.fw * 0.6;
-      const midHalfW = tp.fw * 0.51;
-      const tipHalfW = tp.fw * 0.39;
+      const baseHalfW = tp.fw * 0.54;
+      const midHalfW = tp.fw * 0.46;
+      const tipHalfW = tp.fw * 0.36;
 
-      // Subtle anatomical arch at middle joint (PIP)
       const midX = kn.x + dx * 0.54;
       const midY = kn.y + dy * 0.54 - (1 - tp.press) * 1.8;
 
@@ -530,58 +564,16 @@ export class VirtualHandsController {
       ctx.quadraticCurveTo(midX + nx * midHalfW, midY + ny * midHalfW, kn.x + nx * baseHalfW, kn.y + ny * baseHalfW);
       ctx.closePath();
 
-      if (style === 'realistic') {
-        const fgGrad = ctx.createLinearGradient(midX - nx * baseHalfW, midY, midX + nx * baseHalfW, midY);
-        fgGrad.addColorStop(0, '#9e755e');
-        fgGrad.addColorStop(0.32, '#e3bfa6');
-        fgGrad.addColorStop(0.68, '#d1a488');
-        fgGrad.addColorStop(1, '#845f4b');
-        ctx.fillStyle = fgGrad;
-        ctx.fill();
-
-        // Colored LED light reflected from the pressed key onto the fingertip!
-        if (fg.glowIntensity > 0.05) {
-          const tipGlow = ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, tp.fw * 2.1);
-          tipGlow.addColorStop(0, rgbToCss(lightenRgb(fg.glowColor, 0.35), 0.68 * fg.glowIntensity));
-          tipGlow.addColorStop(1, rgbToCss(fg.glowColor, 0));
-          ctx.fillStyle = tipGlow;
-          ctx.fill();
-        }
-
-        // Subtle joint crease + contour
-        ctx.strokeStyle = 'rgba(42, 24, 18, 0.42)';
-        ctx.lineWidth = 0.85;
-        ctx.stroke();
-
-        // Delicate knuckle joint shading line
-        ctx.strokeStyle = 'rgba(110, 72, 54, 0.32)';
-        ctx.lineWidth = 0.9;
-        ctx.beginPath();
-        ctx.moveTo(midX - nx * midHalfW * 0.55, midY - ny * midHalfW * 0.55);
-        ctx.lineTo(midX + nx * midHalfW * 0.55, midY + ny * midHalfW * 0.55);
-        ctx.stroke();
-
-        // Realistic fingernail
-        const nailR = tipHalfW * 0.72;
-        const nailX = tp.x - (dx / len) * (nailR * 0.5);
-        const nailY = tp.y - (dy / len) * (nailR * 0.5);
-        ctx.fillStyle =
-          fg.glowIntensity > 0.25
-            ? rgbToCss(lightenRgb(fg.glowColor, 0.68), 0.72)
-            : 'rgba(250, 228, 218, 0.72)';
-        ctx.beginPath();
-        ctx.ellipse(nailX, nailY, nailR * 0.74, nailR * 0.96, Math.atan2(dy, dx) + Math.PI / 2, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (style === 'hologram') {
-        const col = fg.glowIntensity > 0.15 ? fg.glowColor : themeColor;
+      const col = fg.glowIntensity > 0.15 ? fg.glowColor : themeColor;
+      if (style === 'hologram') {
         const holoGrad = ctx.createLinearGradient(kn.x, kn.y, tp.x, tp.y);
-        holoGrad.addColorStop(0, rgbToCss(col, 0.2));
-        holoGrad.addColorStop(0.65, rgbToCss(lightenRgb(col, 0.22), 0.42 + tp.press * 0.26));
-        holoGrad.addColorStop(1, rgbToCss(lightenRgb(col, 0.5), 0.74 + tp.press * 0.22));
+        holoGrad.addColorStop(0, rgbToCss(col, 0.16));
+        holoGrad.addColorStop(0.65, rgbToCss(lightenRgb(col, 0.22), 0.38 + tp.press * 0.28));
+        holoGrad.addColorStop(1, rgbToCss(lightenRgb(col, 0.5), 0.72 + tp.press * 0.22));
         ctx.fillStyle = holoGrad;
         ctx.fill();
 
-        ctx.strokeStyle = rgbToCss(lightenRgb(col, 0.48), 0.68 + tp.press * 0.28);
+        ctx.strokeStyle = rgbToCss(lightenRgb(col, 0.48), 0.62 + tp.press * 0.32);
         ctx.lineWidth = 1.1;
         ctx.stroke();
 
@@ -592,11 +584,10 @@ export class VirtualHandsController {
           ctx.fill();
         }
       } else {
-        const col = fg.glowIntensity > 0.15 ? fg.glowColor : themeColor;
-        ctx.fillStyle = 'rgba(6, 8, 16, 0.46)';
+        ctx.fillStyle = 'rgba(6, 8, 16, 0.42)';
         ctx.fill();
-        ctx.strokeStyle = rgbToCss(lightenRgb(col, tp.press * 0.45), 0.88);
-        ctx.lineWidth = tp.press > 0.3 ? 1.7 : 1.2;
+        ctx.strokeStyle = rgbToCss(lightenRgb(col, tp.press * 0.45), 0.85);
+        ctx.lineWidth = tp.press > 0.3 ? 1.7 : 1.15;
         ctx.stroke();
 
         ctx.fillStyle = rgbToCss(lightenRgb(col, 0.6), 0.9);
@@ -606,66 +597,21 @@ export class VirtualHandsController {
       }
     }
 
-    // 3. Sculpted Back-of-Hand (Metacarpal Bridge) seamlessly blending into the wrist
     tracePalmShape();
-    if (style === 'realistic') {
-      const palmGrad = ctx.createLinearGradient(palmCx - palmHalfW, palmCy, palmCx + palmHalfW, palmCy);
-      palmGrad.addColorStop(0, '#997059');
-      palmGrad.addColorStop(0.35, '#e2bfa6');
-      palmGrad.addColorStop(0.68, '#cfa184');
-      palmGrad.addColorStop(1, '#855f4a');
-      ctx.fillStyle = palmGrad;
-      ctx.fill();
-
-      // Subtle soft fade at the bottom wrist edge
-      const wristFade = ctx.createLinearGradient(palmCx, palmCy - palmH * 0.3, palmCx, palmCy + palmH * 0.95);
-      wristFade.addColorStop(0, 'rgba(0,0,0,0)');
-      wristFade.addColorStop(1, 'rgba(18, 12, 10, 0.48)');
-      ctx.fillStyle = wristFade;
-      ctx.fill();
-
-      // Subtle bounced key light on front knuckles
-      if (maxGlow > 0.08) {
-        const bounce = ctx.createRadialGradient(
-          topCenter.x,
-          topCenter.y,
-          2,
-          topCenter.x,
-          palmCy,
-          palmHalfW * 1.15
-        );
-        bounce.addColorStop(0, rgbToCss(bounceColor, 0.28 * maxGlow));
-        bounce.addColorStop(1, rgbToCss(bounceColor, 0));
-        ctx.fillStyle = bounce;
-        ctx.fill();
-      }
-
-      ctx.strokeStyle = 'rgba(42, 24, 18, 0.36)';
-      ctx.lineWidth = 0.85;
-      ctx.stroke();
-
-      // Subtle knuckle highlights
-      for (let f = 0; f < 5; f++) {
-        const kn = knuckles[f];
-        ctx.fillStyle = 'rgba(255, 232, 218, 0.24)';
-        ctx.beginPath();
-        ctx.arc(kn.x, kn.y + 3, Math.max(2, whiteW * 0.22), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (style === 'hologram') {
+    if (style === 'hologram') {
       const holoPalm = ctx.createLinearGradient(topCenter.x, topCenter.y, palmCx, palmCy + palmH);
-      holoPalm.addColorStop(0, rgbToCss(lightenRgb(themeColor, 0.35), 0.38));
-      holoPalm.addColorStop(1, rgbToCss(themeColor, 0.08));
+      holoPalm.addColorStop(0, rgbToCss(lightenRgb(bounceColor, 0.3), 0.34));
+      holoPalm.addColorStop(1, rgbToCss(themeColor, 0.06));
       ctx.fillStyle = holoPalm;
       ctx.fill();
-      ctx.strokeStyle = rgbToCss(lightenRgb(themeColor, 0.45), 0.56);
-      ctx.lineWidth = 1.1;
+      ctx.strokeStyle = rgbToCss(lightenRgb(themeColor, 0.45), 0.5);
+      ctx.lineWidth = 1.05;
       ctx.stroke();
     } else {
-      ctx.fillStyle = 'rgba(6, 8, 16, 0.42)';
+      ctx.fillStyle = 'rgba(6, 8, 16, 0.38)';
       ctx.fill();
-      ctx.strokeStyle = rgbToCss(themeColor, 0.78);
-      ctx.lineWidth = 1.25;
+      ctx.strokeStyle = rgbToCss(themeColor, 0.72);
+      ctx.lineWidth = 1.2;
       ctx.stroke();
     }
 
