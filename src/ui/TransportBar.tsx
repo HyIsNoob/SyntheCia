@@ -14,6 +14,7 @@ interface TransportBarProps {
   pianoHeightRatio: number;
   inspectorOpen: boolean;
   language: Language;
+  zenDimmed?: boolean;
   onTogglePlay: () => void;
   onSeek: (timeSec: number) => void;
   onRestart: () => void;
@@ -44,6 +45,7 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   pianoHeightRatio,
   inspectorOpen,
   language,
+  zenDimmed = false,
   onTogglePlay,
   onSeek,
   onRestart,
@@ -83,27 +85,29 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   return (
     <div
       style={{ bottom: bottomOffset }}
-      className={`fixed z-20 px-3.5 py-2 rounded-2xl bg-slate-950/74 backdrop-blur-2xl border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.65)] flex items-center gap-3 transition-all duration-200 ${
+      className={`fixed z-20 px-3 py-1.5 rounded-2xl bg-[#060911]/68 backdrop-blur-2xl border border-white/[0.09] shadow-[0_12px_36px_rgba(0,0,0,0.58)] flex items-center gap-2.5 transition-all duration-500 ${
+        zenDimmed && !inspectorOpen ? 'opacity-15 hover:opacity-100' : 'opacity-100'
+      } ${
         inspectorOpen
-          ? 'left-4 right-4 lg:right-[368px] max-w-[740px] mx-auto'
-          : 'left-1/2 -translate-x-1/2 w-[min(94vw,790px)]'
+          ? 'left-4 right-4 lg:right-[368px] max-w-[700px] mx-auto'
+          : 'left-1/2 -translate-x-1/2 w-[min(92vw,720px)]'
       }`}
     >
       {/* Play / Pause & Restart */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
           onClick={onRestart}
-          className="p-2 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition cursor-pointer"
+          className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer"
           title={language === 'en' ? 'Restart' : 'Phát lại từ đầu'}
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="w-3.5 h-3.5" />
         </button>
 
         <button
           type="button"
           onClick={onTogglePlay}
-          className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 hover:from-violet-400 hover:to-fuchsia-500 text-white flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.55)] transition cursor-pointer"
+          className="w-8 h-8 rounded-xl bg-sky-400 hover:bg-sky-300 text-slate-950 flex items-center justify-center shadow-[0_0_18px_rgba(56,189,248,0.4)] transition cursor-pointer"
           title={
             isPlaying
               ? language === 'en'
@@ -156,8 +160,8 @@ export const TransportBar: React.FC<TransportBarProps> = ({
                 style={{ height: `${Math.round(h * 100)}%` }}
                 className={`flex-1 rounded-full transition-colors ${
                   passed
-                    ? 'bg-gradient-to-t from-violet-500 to-amber-300 shadow-[0_0_6px_rgba(167,139,250,0.5)]'
-                    : 'bg-white/16 group-hover:bg-white/25'
+                    ? 'bg-gradient-to-t from-sky-400 to-amber-300 shadow-[0_0_6px_rgba(56,189,248,0.45)]'
+                    : 'bg-white/14 group-hover:bg-white/24'
                 }`}
               />
             );

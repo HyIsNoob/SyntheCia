@@ -2,8 +2,8 @@
 
 @layer base {
   :root {
-    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-display: 'Syne', 'Plus Jakarta Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   }
 
@@ -39,14 +39,14 @@ input[type='range'].studio-slider::-webkit-slider-thumb {
   height: 14px;
   border-radius: 9999px;
   background: #f8fafc;
-  border: 2px solid #8b5cf6;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.72);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 input[type='range'].studio-slider::-webkit-slider-thumb:hover {
   transform: scale(1.18);
-  box-shadow: 0 0 18px rgba(167, 139, 250, 0.95);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.95);
 }
 
 input[type='range'].studio-slider::-moz-range-thumb {
@@ -54,8 +54,8 @@ input[type='range'].studio-slider::-moz-range-thumb {
   height: 14px;
   border-radius: 9999px;
   background: #f8fafc;
-  border: 2px solid #8b5cf6;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.72);
 }
 
 /* Custom dark scrollbar for inspector drawer */

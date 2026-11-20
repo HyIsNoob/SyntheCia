@@ -41,6 +41,7 @@ import {
 } from './types/visualizer';
 import { CleanModeOverlay } from './ui/CleanModeOverlay';
 import { InspectorDrawer } from './ui/InspectorDrawer';
+import { LandingPage } from './ui/LandingPage';
 import { TopBar } from './ui/TopBar';
 import { TransportBar } from './ui/TransportBar';
 import {
@@ -55,6 +56,13 @@ export const App: React.FC = () => {
   const exporter = useMemo(() => new VideoExporter(), []);
   const stageRef = useRef<VisualizerStageHandle | null>(null);
   const initialMeta = useMemo(() => loadPersistedMeta(), []);
+
+  const [view, setView] = useState<'landing' | 'studio'>(() => {
+    if (typeof window === 'undefined') return 'landing';
+    const h = window.location.hash;
+    return h.startsWith('#preset=') || h === '#studio' ? 'studio' : 'landing';
+  });
+  const [zenDimmed, setZenDimmed] = useState(false);
 
   const [settings, setSettings] = useState<VisualizerSettings>(() => {
     const base = loadPersistedSettings();
@@ -88,7 +96,6 @@ export const App: React.FC = () => {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [cleanMode, setCleanMode] = useState(false);
   const [cursorHidden, setCursorHidden] = useState(false);
-  const [isWebGL2, setIsWebGL2] = useState(true);
   const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
 
   const [isRecording, setIsRecording] = useState(false);
@@ -241,6 +248,46 @@ export const App: React.FC = () => {
       window.removeEventListener('mousemove', onMove);
     };
   }, [cleanMode]);
+
+  // Smart Zen Auto-Fade in Studio: gently dims chrome after 2.4s of idle mouse while playing!
+  useEffect(() => {
+    if (view !== 'studio' || !isPlaying || inspectorOpen || cleanMode || playMode !== 'auto') {
+      setZenDimmed(false);
+      return;
+    }
+    let timer = window.setTimeout(() => setZenDimmed(true), 2400);
+    const wake = () => {
+      setZenDimmed(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setZenDimmed(true), 2400);
+    };
+    window.addEventListener('mousemove', wake, { passive: true });
+    window.addEventListener('pointerdown', wake, { passive: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('mousemove', wake);
+      window.removeEventListener('pointerdown', wake);
+    };
+  }, [view, isPlaying, inspectorOpen, cleanMode, playMode]);
+
+  const enterStudio = useCallback(() => {
+    audioEngine.stopAllNotes();
+    setView('studio');
+    if (typeof window !== 'undefined' && !window.location.hash.startsWith('#preset=')) {
+      window.history.replaceState(null, '', '#studio');
+    }
+  }, [audioEngine]);
+
+  const returnToLanding = useCallback(() => {
+    audioEngine.stopAllNotes();
+    setIsPlaying(false);
+    setInspectorOpen(false);
+    setCleanMode(false);
+    setView('landing');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [audioEngine]);
 
   const updateSettings = useCallback((patch: Partial<VisualizerSettings>) => {
     setSettings((prev) => ({ ...prev, ...patch }));
@@ -885,8 +932,9 @@ export const App: React.FC = () => {
     });
   }, [audioEngine, currentTime, midi, playMode]);
 
-  // Global keyboard handler: Magic Keys ("Giả bấm") + QWERTY Piano + Studio Shortcuts!
+  // Global keyboard handler: Magic Keys ("Giả bấm") + QWERTY Piano + Studio Shortcuts (Studio view only!)
   useEffect(() => {
+    if (view !== 'studio') return;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
@@ -991,6 +1039,7 @@ export const App: React.FC = () => {
     isRecording,
     playMode,
     qwertyOctaveShift,
+    view,
   ]);
 
   // Global Drag & Drop for MIDI, Custom Background Images, Audio, and Preset JSON
@@ -1008,6 +1057,7 @@ export const App: React.FC = () => {
     setIsDraggingFile(false);
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
+    if (view !== 'studio') enterStudio();
     const lower = file.name.toLowerCase();
     if (lower.endsWith('.mid') || lower.endsWith('.midi')) {
       void handleUploadMidi(file);
@@ -1026,6 +1076,47 @@ export const App: React.FC = () => {
       showToast(t.dropOverlayDesc, 3500);
     }
   };
+
+  // Interactive 3D Concert Landing Page
+  if (view === 'landing') {
+    return (
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className="relative w-screen h-screen overflow-hidden bg-[#04060c]"
+      >
+        <LandingPage
+          audioEngine={audioEngine}
+          language={settings.language}
+          onChangeLanguage={(lang) => updateSettings({ language: lang })}
+          onLaunchStudio={enterStudio}
+          onLaunchWithDemo={(demoId) => {
+            handleSelectDemo(demoId);
+            enterStudio();
+            window.setTimeout(() => {
+              audioEngine.ensureInitialized();
+              setIsPlaying(true);
+            }, 120);
+          }}
+          onLaunchWithFile={(file) => {
+            enterStudio();
+            void handleUploadMidi(file);
+          }}
+        />
+        {isDraggingFile && (
+          <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-6 pointer-events-none">
+            <div className="max-w-md w-full rounded-3xl border-2 border-dashed border-sky-400/70 bg-sky-950/30 p-10 text-center shadow-[0_0_60px_rgba(56,189,248,0.28)]">
+              <div className="text-xl font-bold text-white font-[var(--font-display)]">
+                {t.dropOverlayTitle}
+              </div>
+              <p className="text-xs text-slate-300 mt-2 leading-relaxed">{t.dropOverlayDesc}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1053,13 +1144,12 @@ export const App: React.FC = () => {
         stageRef={stageRef}
         onTimeUpdate={setCurrentTime}
         onSongEnded={handleSongEnded}
-        onEngineReady={setIsWebGL2}
         onPerfStats={setPerfStats}
         onMagicProgress={(stepIndex, totalSteps) => setMagicProgress({ stepIndex, totalSteps })}
         onRhythmFeedback={setRhythmFeedback}
       />
 
-      {/* Studio Chrome (100% Hidden in Clean Video Mode) */}
+      {/* Ultra-Clean Studio Chrome (Auto-fades gently while playing; 100% hidden in Clean Video Mode) */}
       {!cleanMode && (
         <>
           <TopBar
@@ -1072,14 +1162,14 @@ export const App: React.FC = () => {
             inspectorOpen={inspectorOpen}
             isRecording={isRecording}
             recordingSec={recordingSec}
-            isWebGL2={isWebGL2}
             usbMidiCount={usbMidiDevices.length}
+            zenDimmed={zenDimmed}
+            onGoHome={returnToLanding}
             onSelectDemo={handleSelectDemo}
             onSelectSavedSong={(id) => void handleSelectSavedSong(id)}
             onDeleteSavedSong={(id) => void handleDeleteSavedSong(id)}
             onUploadMidi={(f) => void handleUploadMidi(f)}
             onUpdateSettings={updateSettings}
-            onChangePlayMode={handleChangePlayMode}
             onToggleInspector={() => setInspectorOpen((v) => !v)}
             onEnterCleanMode={() => {
               setInspectorOpen(false);
@@ -1194,6 +1284,7 @@ export const App: React.FC = () => {
             pianoHeightRatio={settings.pianoHeightRatio}
             inspectorOpen={inspectorOpen}
             language={settings.language}
+            zenDimmed={zenDimmed}
             onTogglePlay={handleTogglePlay}
             onSeek={(tSec) => stageRef.current?.seekTo(tSec)}
             onRestart={() => {
