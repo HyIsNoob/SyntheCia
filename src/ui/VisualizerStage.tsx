@@ -762,10 +762,10 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({
       );
 
       const blendedEnergy = {
-        bass: Math.max(audioEnergy.bass, frame.activeEnergy * 0.65),
+        bass: Math.max(audioEnergy.bass, frame.activeEnergy * 0.65, frame.beatPulse * 0.85),
         mid: Math.max(audioEnergy.mid, frame.activeEnergy * 0.55),
         treble: Math.max(audioEnergy.treble, frame.activeEnergy * 0.45),
-        overall: Math.max(audioEnergy.overall, frame.activeEnergy * 0.72),
+        overall: Math.max(audioEnergy.overall, frame.activeEnergy * 0.72, frame.beatPulse * 0.78),
       };
 
       compositor.renderFrame(

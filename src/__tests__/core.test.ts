@@ -296,4 +296,20 @@ describe('Performance Windowing, Magic Keys & QWERTY Piano', () => {
     const farCenter = projectHighwayPoint(0.5, 1, 1920, 900, true, 0.6, 0.08);
     expect(farCenter.x).toBeGreaterThan(960);
   });
+
+  it('cycles RGB Flow Wave colors continuously with hue phase and note start time', () => {
+    const c0 = resolveNoteColor(
+      { midi: 60, hand: 'right', velocity: 0.85, trackIndex: 0, start: 0 },
+      { colorMode: 'rgb-wave', leftHandColor: '#ff9640', rightHandColor: '#9b6dff', rgbFlowEnabled: true },
+      undefined,
+      0
+    );
+    const c1 = resolveNoteColor(
+      { midi: 60, hand: 'right', velocity: 0.85, trackIndex: 0, start: 0 },
+      { colorMode: 'rgb-wave', leftHandColor: '#ff9640', rightHandColor: '#9b6dff', rgbFlowEnabled: true },
+      undefined,
+      120
+    );
+    expect(c0).not.toEqual(c1);
+  });
 });

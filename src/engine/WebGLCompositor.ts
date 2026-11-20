@@ -588,6 +588,12 @@ export class WebGLCompositor {
         r = 0.52 + Math.random() * 0.35;
         g = 0.88 + Math.random() * 0.12;
         b = 1.0;
+      } else if (theme === 'prism') {
+        // Iridescent prismatic RGB tint seeded around the note's hue!
+        const ph = (tr.xNorm * 6.283 + Math.random() * 1.4) % 6.283;
+        r = 0.58 + 0.42 * Math.sin(ph);
+        g = 0.58 + 0.42 * Math.sin(ph + 2.094);
+        b = 0.58 + 0.42 * Math.sin(ph + 4.188);
       }
 
       // A. Fluid Silk / Volcanic Fire / Sakura Petals / Frost Mist
@@ -881,6 +887,12 @@ export class WebGLCompositor {
         outR = 1.0 - Math.max(0, t - 0.65) * 0.65;
         outG = Math.max(0.06, Math.pow(1 - t, 1.55) * 0.95);
         outB = Math.max(0.02, Math.pow(1 - t, 3.8) * 0.72);
+      } else if (settings.particleTheme === 'prism') {
+        // Dynamic moving RGB Prism shimmer synced to clock + particle trajectory!
+        const hueAngle = clockSec * (2.2 + (settings.rgbFlowSpeed ?? 0.75) * 1.5) + this.pSeed[i] * 0.14 + y * 4.2;
+        outR = 0.56 + 0.44 * Math.sin(hueAngle);
+        outG = 0.56 + 0.44 * Math.sin(hueAngle + 2.094);
+        outB = 0.56 + 0.44 * Math.sin(hueAngle + 4.188);
       }
 
       let alpha: number;

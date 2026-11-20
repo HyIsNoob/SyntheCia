@@ -2,7 +2,7 @@ import type { AudioEnergy } from '../audio/AudioEngine';
 import { findActiveLyricIndex } from '../midi/LyricsParser';
 import { findVisibleNoteRange } from '../midi/MidiParser';
 import type { LyricLine, ParsedMidi, TrackOverride, VisualizerSettings } from '../types/visualizer';
-import { hexToRgb, lightenRgb, resolveNoteColor, rgbToCss, type RGB } from './ColorUtils';
+import { hexToRgb, hslToRgb, lightenRgb, resolveNoteColor, rgbToCss, type RGB } from './ColorUtils';
 import {
   FIRST_MIDI,
   getKeyLayoutByMidi,
@@ -32,6 +32,15 @@ export interface SceneFrameResult {
   hitLineY: number;
   triggers: FrameTrigger[];
   activeEnergy: number;
+  beatPulse: number;
+}
+
+interface StrikeWave {
+  xNorm: number; // 0..1 keyboard hit position
+  age: number; // seconds elapsed
+  maxAge: number;
+  velocity: number;
+  color: RGB;
 }
 
 function darkenRgb(rgb: RGB, factor: number): RGB {
@@ -60,6 +69,11 @@ export class SceneRenderer {
   private sustainSmooth = 0;
   private cameraPunch = 0;
   private cameraVanishX = 0;
+  private rgbHuePhase = 0;
+  private beatPulse = 0;
+  private prevBassEnergy = 0;
+  private dominantColor: RGB = { r: 56, g: 189, b: 248 };
+  private strikeWaves: StrikeWave[] = [];
 
   // Precomputed smoothed wave arrays for the plasma keyboard edge
   private readonly waveSamples = 180;
@@ -123,6 +137,8 @@ export class SceneRenderer {
       ks.velocity = 0;
     }
     this.waveEnergy.fill(0);
+    this.strikeWaves = [];
+    this.beatPulse = 0;
     this.hands.reset();
   }
 
@@ -152,6 +168,13 @@ export class SceneRenderer {
     const sustainTarget = sustainPedalDown ? 1 : 0;
     this.sustainSmooth += (sustainTarget - this.sustainSmooth) * Math.min(1, dt * 8);
 
+    // Continuous RGB Hue Flow Phase (accelerates subtly with musical beat & energy!)
+    const flowActive = settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave';
+    if (flowActive) {
+      const flowBoost = 1 + this.beatPulse * 1.15 + audioEnergy.overall * 0.45;
+      this.rgbHuePhase = (this.rgbHuePhase + dt * 42 * (settings.rgbFlowSpeed ?? 0.75) * flowBoost) % 360;
+    }
+
     // 1. Determine active notes & triggers for this frame via O(log N) binary search!
     const currentlyPressed = new Map<number, { velocity: number; color: RGB }>();
     const triggers: FrameTrigger[] = [];
@@ -169,7 +192,7 @@ export class SceneRenderer {
         // In Wait-for-Note Practice mode, keep waiting keys unpressed (amber guide!) until the player hits them!
         if (waitingNotes && waitingNotes.has(n.midi) && !manualPressedNotes.has(n.midi)) continue;
         if (n.start <= currentTime && n.end >= currentTime) {
-          const col = resolveNoteColor(n, settings, trackOverrides);
+          const col = resolveNoteColor(n, settings, trackOverrides, this.rgbHuePhase);
           const existing = currentlyPressed.get(n.midi);
           if (!existing || n.velocity > existing.velocity) {
             currentlyPressed.set(n.midi, { velocity: n.velocity, color: col });
@@ -181,8 +204,10 @@ export class SceneRenderer {
     // Merge live manual pointer / QWERTY / Web MIDI / Magic Keys pressed notes
     for (const [m, vel] of manualPressedNotes.entries()) {
       const col = resolveNoteColor(
-        { midi: m, hand: m < 60 ? 'left' : 'right', velocity: vel, trackIndex: m < 60 ? 0 : 1 },
-        settings
+        { midi: m, hand: m < 60 ? 'left' : 'right', velocity: vel, trackIndex: m < 60 ? 0 : 1, start: currentTime },
+        settings,
+        undefined,
+        this.rgbHuePhase
       );
       currentlyPressed.set(m, { velocity: vel, color: col });
     }
@@ -211,6 +236,16 @@ export class SceneRenderer {
 
         const keyLayout = getKeyLayoutByMidi(ks.midi);
         if (keyLayout) {
+          if (!wasPressed && settings.strikeWaveEnabled) {
+            if (this.strikeWaves.length >= 44) this.strikeWaves.shift();
+            this.strikeWaves.push({
+              xNorm: keyLayout.normCenterX,
+              age: 0,
+              maxAge: 0.72 + active.velocity * 0.36,
+              velocity: active.velocity,
+              color: active.color,
+            });
+          }
           triggers.push({
             midi: ks.midi,
             xNorm: keyLayout.normCenterX,
@@ -223,6 +258,50 @@ export class SceneRenderer {
         ks.pressed = false;
         ks.intensity = Math.max(0, ks.intensity - dt * 6.4);
       }
+    }
+
+    // Advance active Strike Light Waves
+    for (let i = this.strikeWaves.length - 1; i >= 0; i--) {
+      this.strikeWaves[i].age += dt;
+      if (this.strikeWaves[i].age >= this.strikeWaves[i].maxAge) {
+        this.strikeWaves.splice(i, 1);
+      }
+    }
+
+    // Real-Time Beat Envelope Detector (combines bass FFT transient + MIDI chord attacks + BPM phase!)
+    const bassDelta = Math.max(0, audioEnergy.bass - this.prevBassEnergy);
+    this.prevBassEnergy = audioEnergy.bass;
+    let bpmPulse = 0;
+    if (midi && midi.bpm > 0 && activeEnergySum > 0.15) {
+      const beatFrac = ((currentTime * midi.bpm) / 60) % 1;
+      bpmPulse = Math.exp(-beatFrac * 8.5) * 0.42;
+    }
+    const rawBeat = Math.min(1, attackImpact * 0.34 + bassDelta * 2.4 + audioEnergy.bass * 0.35 + bpmPulse);
+    if (rawBeat > this.beatPulse) {
+      this.beatPulse += (rawBeat - this.beatPulse) * Math.min(1, dt * 22);
+    } else {
+      this.beatPulse *= Math.exp(-dt * 5.6);
+    }
+
+    // Track dominant active stage color smoothly for concert spotlights & beat aura
+    if (triggers.length > 0) {
+      let rS = 0;
+      let gS = 0;
+      let bS = 0;
+      for (const tr of triggers) {
+        rS += tr.color.r;
+        gS += tr.color.g;
+        bS += tr.color.b;
+      }
+      const inv = 1 / triggers.length;
+      const mixRate = Math.min(1, dt * 4.5);
+      this.dominantColor = {
+        r: Math.round(this.dominantColor.r + (rS * inv - this.dominantColor.r) * mixRate),
+        g: Math.round(this.dominantColor.g + (gS * inv - this.dominantColor.g) * mixRate),
+        b: Math.round(this.dominantColor.b + (bS * inv - this.dominantColor.b) * mixRate),
+      };
+    } else if (settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave') {
+      this.dominantColor = hslToRgb(this.rgbHuePhase, 0.92, 0.58);
     }
 
     // Smooth spring-decay camera bass punch
@@ -275,6 +354,16 @@ export class SceneRenderer {
     // 2. Render Background (Image / Looping Video / Animated Procedural)
     this.renderBackground(ctx, width, height, hitLineY, clockSec, settings, audioEnergy, hasVideoReady && !isOverheadHandsVideo ? videoEl : null);
 
+    // 2.2 Beat-Reactive Concert Stage Perimeter Glow & Horizon Wash
+    if (settings.beatStageGlowEnabled) {
+      this.renderBeatStageGlow(ctx, width, hitLineY, settings, audioEnergy);
+    }
+
+    // 2.5 Volumetric Sweeping Beat-Reactive Concert Spotlights / Stage Beams
+    if (settings.stageSpotlightsEnabled && settings.stageSpotlightsIntensity > 0.02) {
+      this.renderStageSpotlights(ctx, width, hitLineY, clockSec, settings, audioEnergy);
+    }
+
     // Apply subtle Bass Camera Punch ONLY to the upper falling-note stage (keeps keyboard rock solid!)
     const punchAmt = this.cameraPunch * settings.cameraPunchIntensity;
     ctx.save();
@@ -289,6 +378,11 @@ export class SceneRenderer {
     // 3. Render Octave Grid, Measure Lines & Chord Markers
     if (settings.showMeasureGrid || is3D) {
       this.renderHighwayGrid(ctx, midi, currentTime, width, hitLineY, settings);
+    }
+
+    // 3.5 Floating 3D Circular Radial Audio Spectrum Halo (Beat-Reactive Concert Centerpiece!)
+    if (settings.beatHaloEnabled) {
+      this.renderBeatAudioHalo(ctx, width, hitLineY, clockSec, spectrumBins, settings, audioEnergy);
     }
 
     // 4. Render Live Audio EQ Spectrum behind strike line
@@ -319,6 +413,11 @@ export class SceneRenderer {
       this.renderElectricChordArcs(ctx, width, hitLineY, clockSec);
     }
 
+    // 7.5 Spreading Strike Light Domes & Expanding Halo Waves above the strike line!
+    if (settings.strikeWaveEnabled && this.strikeWaves.length > 0) {
+      this.renderStrikeLightDomes(ctx, width, hitLineY, settings);
+    }
+
     // 8. Render Refined Plasma Energy Wave + Anamorphic Strike Flares along hitLineY
     if (settings.plasmaEdgeWave && settings.plasmaEdgeIntensity > 0.01) {
       this.renderPlasmaEdge(ctx, width, hitLineY, clockSec, dt, settings, audioEnergy);
@@ -331,6 +430,11 @@ export class SceneRenderer {
       // Dark clean backdrop behind real overhead hands video
       ctx.fillStyle = '#04050a';
       ctx.fillRect(0, hitLineY, width, pianoHeight);
+    }
+
+    // 9.5 Horizontal Strike Light Wave Propagation rippling outward across neighboring piano keys!
+    if (settings.strikeWaveEnabled && this.strikeWaves.length > 0) {
+      this.renderKeybedWavePropagation(ctx, width, hitLineY, pianoHeight, settings);
     }
 
     if (isOverheadHandsVideo && videoEl) {
@@ -369,7 +473,7 @@ export class SceneRenderer {
     // 12. Render Cinematic Title Intro Card & Channel Watermark directly onto Canvas (baked into video!)
     this.renderTitleAndWatermark(ctx, midi, currentTime, width, hitLineY, settings);
 
-    return { hitLineY, triggers, activeEnergy };
+    return { hitLineY, triggers, activeEnergy, beatPulse: this.beatPulse };
   }
 
   private renderBackground(
@@ -740,7 +844,7 @@ export class SceneRenderer {
         if (tTop <= tBottom) continue;
 
         const isHitting = currentTime >= n.start && currentTime <= n.end;
-        const baseColor = resolveNoteColor(n, settings, trackOverrides);
+        const baseColor = resolveNoteColor(n, settings, trackOverrides, this.rgbHuePhase);
         const color = renderBlack ? darkenRgb(baseColor, 0.08) : baseColor;
         const brightColor = lightenRgb(baseColor, isHitting ? 0.42 * glowAmt : 0.26 * glowAmt);
 
@@ -1441,7 +1545,9 @@ export class SceneRenderer {
       const midiApprox = 21 + Math.round((i / (count - 1)) * 87);
       const col = resolveNoteColor(
         { midi: midiApprox, hand: midiApprox < 60 ? 'left' : 'right', velocity: val, trackIndex: i % 2 },
-        settings
+        settings,
+        undefined,
+        this.rgbHuePhase
       );
 
       const g = ctx.createLinearGradient(x, hitLineY, x, hitLineY - h);
@@ -1825,5 +1931,320 @@ export class SceneRenderer {
       ctx.fillText(wm, width - 24 * pxScale, hitLineY - 18 * pxScale);
       ctx.restore();
     }
+  }
+
+  /**
+   * v5.0 Concert Stage FX: Beat-Reactive Ambient Perimeter Glow & Chromatic Horizon Swell.
+   */
+  private renderBeatStageGlow(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    settings: VisualizerSettings,
+    audioEnergy: AudioEnergy
+  ): void {
+    const energy = Math.min(1, this.beatPulse * 0.78 + audioEnergy.bass * 0.42);
+    if (energy < 0.04) return;
+
+    const useRgb = settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave';
+    const colA = useRgb ? hslToRgb(this.rgbHuePhase, 0.95, 0.56) : this.dominantColor;
+    const colB = useRgb ? hslToRgb((this.rgbHuePhase + 135) % 360, 0.95, 0.56) : hexToRgb(settings.rightHandColor);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Lower horizon beat swell right behind the strike bar
+    const swellH = hitLineY * (0.28 + energy * 0.22);
+    const horizonG = ctx.createLinearGradient(0, hitLineY, 0, hitLineY - swellH);
+    horizonG.addColorStop(0, rgbToCss(colA, 0.16 * energy));
+    horizonG.addColorStop(0.55, rgbToCss(colB, 0.06 * energy));
+    horizonG.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = horizonG;
+    ctx.fillRect(0, hitLineY - swellH, width, swellH);
+
+    // Subtle concert side-truss chromatic rim wash breathing with beats
+    const sideW = width * 0.18;
+    const leftG = ctx.createLinearGradient(0, 0, sideW, 0);
+    leftG.addColorStop(0, rgbToCss(colA, 0.13 * energy));
+    leftG.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = leftG;
+    ctx.fillRect(0, 0, sideW, hitLineY);
+
+    const rightG = ctx.createLinearGradient(width, 0, width - sideW, 0);
+    rightG.addColorStop(0, rgbToCss(colB, 0.13 * energy));
+    rightG.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = rightG;
+    ctx.fillRect(width - sideW, 0, sideW, hitLineY);
+
+    ctx.restore();
+  }
+
+  /**
+   * v5.0 Concert Stage FX: Sweeping Volumetric Concert Spotlights & Beat-Reactive Stage Beams.
+   */
+  private renderStageSpotlights(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    clockSec: number,
+    settings: VisualizerSettings,
+    audioEnergy: AudioEnergy
+  ): void {
+    const strength = settings.stageSpotlightsIntensity;
+    const beat = Math.min(1, this.beatPulse * 0.85 + audioEnergy.overall * 0.45);
+    const useRgb = settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave';
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, width, hitLineY);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const anchors = [0.14, 0.34, 0.5, 0.66, 0.86];
+    for (let i = 0; i < anchors.length; i++) {
+      const topX = width * anchors[i];
+      const topY = -hitLineY * 0.08;
+      // Graceful opposing concert truss sweep modulated gently by music!
+      const dir = i % 2 === 0 ? 1 : -1;
+      const sway =
+        Math.sin(clockSec * (0.42 + i * 0.09) + i * 1.45) * width * 0.17 * dir +
+        Math.sin(clockSec * 1.1 + i) * width * 0.025 * beat;
+      const botX = topX + sway;
+      const botY = hitLineY * 1.04;
+
+      const coneHalfW = width * (0.048 + beat * 0.032) * (0.7 + strength * 0.35);
+      const col = useRgb
+        ? hslToRgb((this.rgbHuePhase + i * 54) % 360, 0.94, 0.6)
+        : i % 2 === 0
+          ? hexToRgb(settings.leftHandColor)
+          : hexToRgb(settings.rightHandColor);
+
+      const alpha = (0.055 + beat * 0.125) * strength;
+      const grad = ctx.createLinearGradient(topX, topY, botX, botY);
+      grad.addColorStop(0, rgbToCss(lightenRgb(col, 0.35), Math.min(0.28, alpha * 1.5)));
+      grad.addColorStop(0.55, rgbToCss(col, alpha * 0.55));
+      grad.addColorStop(1, rgbToCss(col, 0));
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(topX - coneHalfW * 0.12, topY);
+      ctx.lineTo(topX + coneHalfW * 0.12, topY);
+      ctx.lineTo(botX + coneHalfW, botY);
+      ctx.lineTo(botX - coneHalfW, botY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Delicate central laser core filament on strong beats
+      if (beat > 0.22) {
+        ctx.strokeStyle = rgbToCss(lightenRgb(col, 0.65), Math.min(0.32, (beat - 0.15) * 0.26 * strength));
+        ctx.lineWidth = Math.max(1, (width / 1360) * 1.3);
+        ctx.beginPath();
+        ctx.moveTo(topX, topY);
+        ctx.lineTo(botX, botY * 0.92);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v5.0 Concert Centerpiece: Floating Circular 3D Radial Audio Spectrum Halo dancing to the beat!
+   */
+  private renderBeatAudioHalo(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    clockSec: number,
+    bins: Float32Array | undefined,
+    settings: VisualizerSettings,
+    audioEnergy: AudioEnergy
+  ): void {
+    const pxScale = Math.max(1, width / 1360);
+    const beat = this.beatPulse;
+    const cx = width * (0.5 + this.cameraVanishX * 0.45);
+    const cy = hitLineY * 0.36;
+    const baseR = Math.min(width, hitLineY) * (0.17 + beat * 0.028);
+    const useRgb = settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Soft central radial concert glow
+    const coreG = ctx.createRadialGradient(cx, cy, baseR * 0.25, cx, cy, baseR * 1.55);
+    const ringCol = useRgb ? hslToRgb(this.rgbHuePhase, 0.95, 0.6) : this.dominantColor;
+    coreG.addColorStop(0, rgbToCss(ringCol, 0.08 + beat * 0.1));
+    coreG.addColorStop(0.6, rgbToCss(ringCol, 0.03 + beat * 0.04));
+    coreG.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = coreG;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR * 1.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Two delicate concentric orbit rings
+    ctx.strokeStyle = rgbToCss(lightenRgb(ringCol, 0.3), 0.26 + beat * 0.35);
+    ctx.lineWidth = 1.5 * pxScale;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = rgbToCss(ringCol, 0.14 + beat * 0.18);
+    ctx.lineWidth = 1.0 * pxScale;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR * 1.18, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 80 radial frequency bars dancing smoothly around the halo
+    const barCount = 80;
+    const binLen = bins ? bins.length : 0;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 2.1 * pxScale;
+
+    for (let i = 0; i < barCount; i++) {
+      const norm = i / barCount;
+      // Symmetrical mirroring around vertical axis for iconic concert look
+      const sym = norm <= 0.5 ? norm * 2 : (1 - norm) * 2;
+      const binVal =
+        binLen > 0
+          ? bins![Math.min(binLen - 1, Math.floor(sym * (binLen - 1)))]
+          : audioEnergy.overall * (0.4 + 0.4 * Math.sin(i * 0.5 + clockSec * 4));
+      const amp = (5 + Math.pow(binVal, 1.15) * (44 + beat * 28)) * pxScale;
+      const theta = norm * Math.PI * 2 - Math.PI * 0.5 + clockSec * 0.18;
+
+      const barCol = useRgb
+        ? hslToRgb((this.rgbHuePhase + sym * 220) % 360, 0.96, 0.62)
+        : resolveNoteColor(
+            { midi: Math.round(30 + sym * 70), hand: sym < 0.5 ? 'left' : 'right', velocity: binVal, trackIndex: i % 2 },
+            settings,
+            undefined,
+            this.rgbHuePhase
+          );
+
+      const r0 = baseR * 1.02;
+      const r1 = r0 + amp;
+      ctx.strokeStyle = rgbToCss(barCol, Math.min(0.9, 0.25 + binVal * 0.65 + beat * 0.2));
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(theta) * r0, cy + Math.sin(theta) * r0);
+      ctx.lineTo(cx + Math.cos(theta) * r1, cy + Math.sin(theta) * r1);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v5.0 Strike Light Propagation (Upper Stage): Expanding hemispherical light domes &
+   * smooth optical halo waves radiating outward whenever a note hits the strike bar!
+   */
+  private renderStrikeLightDomes(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    settings: VisualizerSettings
+  ): void {
+    const pxScale = Math.max(1, width / 1360);
+    const power = settings.strikeWaveIntensity;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, width, hitLineY + 2);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const w of this.strikeWaves) {
+      const p = w.age / w.maxAge;
+      const easeOut = 1 - Math.pow(1 - p, 3);
+      const fade = (1 - p) * (1 - p);
+      if (fade <= 0.01) continue;
+
+      const cx = w.xNorm * width;
+      const maxR = (52 + w.velocity * 92) * power * pxScale;
+      const rad = Math.max(4, maxR * easeOut);
+
+      // 1. Soft hemispherical colored light splash expanding into the stage
+      const domeG = ctx.createRadialGradient(cx, hitLineY, 0, cx, hitLineY, rad);
+      domeG.addColorStop(0, rgbToCss(lightenRgb(w.color, 0.5), 0.32 * fade * power));
+      domeG.addColorStop(0.55, rgbToCss(w.color, 0.16 * fade * power));
+      domeG.addColorStop(1, rgbToCss(w.color, 0));
+      ctx.fillStyle = domeG;
+      ctx.beginPath();
+      ctx.arc(cx, hitLineY, rad, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      // 2. Crisp expanding upper semicircular energy wave arc
+      ctx.strokeStyle = rgbToCss(lightenRgb(w.color, 0.45), Math.min(0.75, 0.56 * fade * power));
+      ctx.lineWidth = Math.max(1, (2.2 - p * 1.4) * pxScale);
+      ctx.beginPath();
+      ctx.ellipse(cx, hitLineY, rad * 1.18, rad * 0.72, 0, Math.PI, Math.PI * 2);
+      ctx.stroke();
+
+      // 3. Fast horizontal light-beam flash racing outward left & right along the strike edge!
+      const streakSpan = (90 + w.velocity * 190) * easeOut * power * pxScale;
+      const sg = ctx.createLinearGradient(cx - streakSpan, hitLineY, cx + streakSpan, hitLineY);
+      sg.addColorStop(0, rgbToCss(w.color, 0));
+      sg.addColorStop(0.35, rgbToCss(w.color, 0.35 * fade * power));
+      sg.addColorStop(0.5, rgbToCss(lightenRgb(w.color, 0.75), 0.7 * fade * power));
+      sg.addColorStop(0.65, rgbToCss(w.color, 0.35 * fade * power));
+      sg.addColorStop(1, rgbToCss(w.color, 0));
+      ctx.fillStyle = sg;
+      ctx.fillRect(cx - streakSpan, hitLineY - 2.6 * pxScale, streakSpan * 2, 5.2 * pxScale);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * v5.0 Strike Light Propagation (Across Piano Keys): Cascading horizontal colored light
+   * wave traveling sequentially outward across neighboring white & black keys!
+   */
+  private renderKeybedWavePropagation(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    hitLineY: number,
+    pianoHeight: number,
+    settings: VisualizerSettings
+  ): void {
+    const layout = getPianoLayout();
+    const power = settings.strikeWaveIntensity;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, hitLineY, width, pianoHeight);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const w of this.strikeWaves) {
+      const p = w.age / w.maxAge;
+      const fade = Math.pow(1 - p, 1.8);
+      if (fade < 0.02) continue;
+
+      // Traveling horizontal wave front radius in normalized keyboard coordinates (spans ~10-16 keys!)
+      const waveRadiusNorm = (0.015 + p * (0.14 + w.velocity * 0.1)) * Math.min(1.5, power);
+      const bandWidth = 0.036;
+
+      for (let i = 0; i < TOTAL_KEYS; i++) {
+        const k = layout[i];
+        const dist = Math.abs(k.normCenterX - w.xNorm);
+        if (dist > waveRadiusNorm + bandWidth) continue;
+
+        // Smooth Gaussian crest around the traveling wave front
+        const crest = Math.exp(-Math.pow((dist - waveRadiusNorm) / bandWidth, 2));
+        const alpha = crest * fade * 0.38 * power;
+        if (alpha < 0.015) continue;
+
+        const x = k.normX * width;
+        const kw = k.normWidth * width;
+        const kh = k.isBlack ? pianoHeight * 0.62 : pianoHeight;
+
+        const g = ctx.createLinearGradient(x, hitLineY, x, hitLineY + kh);
+        g.addColorStop(0, rgbToCss(lightenRgb(w.color, 0.45), Math.min(0.65, alpha * 1.45)));
+        g.addColorStop(0.55, rgbToCss(w.color, alpha * 0.72));
+        g.addColorStop(1, rgbToCss(w.color, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(x, hitLineY, kw, kh);
+      }
+    }
+
+    ctx.restore();
   }
 }

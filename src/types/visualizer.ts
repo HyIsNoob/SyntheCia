@@ -1,6 +1,6 @@
 export type ViewMode = '2d' | '3d';
 export type NoteStyle = 'crystal' | 'neon-hollow' | 'glass-bar' | 'plasma-beam';
-export type ColorMode = 'dual-hand' | 'rainbow' | 'velocity' | 'track';
+export type ColorMode = 'dual-hand' | 'rainbow' | 'rgb-wave' | 'velocity' | 'track';
 export type BackgroundPreset = 'void' | 'aurora' | 'nebula' | 'midnight-ember' | 'custom' | 'video';
 export type AspectRatioMode = 'full' | '16:9' | '9:16' | '1:1';
 export type AudioMode = 'salamander' | 'synth' | 'custom-audio';
@@ -10,7 +10,7 @@ export type Language = 'vi' | 'en';
 export type PlayMode = 'auto' | 'qwerty' | 'magic-keys' | 'practice';
 export type PracticeHand = 'both' | 'right' | 'left';
 export type RenderQuality = 'ultra' | 'high' | 'performance';
-export type ParticleTheme = 'cosmic' | 'fire' | 'sakura' | 'frost';
+export type ParticleTheme = 'cosmic' | 'fire' | 'sakura' | 'frost' | 'prism';
 export type CustomVideoMode = 'backdrop' | 'overhead-hands';
 export type TranscriptionSensitivity = 'melodic' | 'balanced' | 'polyphonic';
 
@@ -117,7 +117,15 @@ export interface VisualizerSettings {
   plasmaEdgeWave: boolean;
   plasmaEdgeIntensity: number; // 0..2.0
 
-  // Concert Stage FX
+  // Concert Stage FX & Beat-Reactive Light Show
+  rgbFlowEnabled: boolean; // animated moving RGB chromatic flow synced to music
+  rgbFlowSpeed: number; // 0.15..3.0 hue flow velocity
+  strikeWaveEnabled: boolean; // expanding keybed light wave + radiating optical dome on note hit
+  strikeWaveIntensity: number; // 0.2..2.0
+  stageSpotlightsEnabled: boolean; // volumetric sweeping beat-reactive concert spotlights
+  stageSpotlightsIntensity: number; // 0.2..1.8
+  beatHaloEnabled: boolean; // floating 3D circular radial audio spectrum halo
+  beatStageGlowEnabled: boolean; // beat-synced ambient stage perimeter flash & energy surge
   eqSpectrumEnabled: boolean;
   eqSpectrumHeight: number; // 0.2..1.5
   mirrorReflectionEnabled: boolean;
@@ -237,6 +245,14 @@ export const DEFAULT_SETTINGS: VisualizerSettings = {
   plasmaEdgeWave: true,
   plasmaEdgeIntensity: 1.15,
 
+  rgbFlowEnabled: true,
+  rgbFlowSpeed: 0.75,
+  strikeWaveEnabled: true,
+  strikeWaveIntensity: 1.05,
+  stageSpotlightsEnabled: true,
+  stageSpotlightsIntensity: 0.72,
+  beatHaloEnabled: false,
+  beatStageGlowEnabled: true,
   eqSpectrumEnabled: true,
   eqSpectrumHeight: 0.75,
   mirrorReflectionEnabled: true,
@@ -340,6 +356,14 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       mirrorReflectionEnabled: true,
       electricArcsEnabled: false,
       cameraPunchIntensity: 0,
+      rgbFlowEnabled: true,
+      rgbFlowSpeed: 0.7,
+      strikeWaveEnabled: true,
+      strikeWaveIntensity: 1.05,
+      stageSpotlightsEnabled: true,
+      stageSpotlightsIntensity: 0.72,
+      beatHaloEnabled: false,
+      beatStageGlowEnabled: true,
       particleTheme: 'cosmic',
       fluidSilkEnabled: true,
       sparksEnabled: true,
@@ -349,6 +373,108 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       particleTurbulence: 1.4,
       backgroundPreset: 'nebula',
       bgOpacity: 0.68,
+    },
+  },
+  {
+    id: 'rgb-beat-symphony',
+    name: 'RGB Beat Symphony 3D',
+    subtitle: 'Dải màu RGB chảy theo nhạc + sóng ánh sáng lan phím, vòng phổ 3D & đèn sân khấu theo beat',
+    subtitleEn: 'Flowing RGB prism wave, spreading strike-light domes, circular beat halo & concert lasers',
+    accentFrom: '#22d3ee',
+    accentTo: '#f43f5e',
+    patch: {
+      viewMode: '3d',
+      noteStyle: 'neon-hollow',
+      colorMode: 'rgb-wave',
+      rgbFlowEnabled: true,
+      rgbFlowSpeed: 1.35,
+      strikeWaveEnabled: true,
+      strikeWaveIntensity: 1.45,
+      stageSpotlightsEnabled: true,
+      stageSpotlightsIntensity: 1.05,
+      beatHaloEnabled: true,
+      beatStageGlowEnabled: true,
+      dynamicCameraEnabled: true,
+      noteWidthScale: 0.8,
+      noteGlowIntensity: 1.1,
+      showNoteLabels: true,
+      showMeasureGrid: true,
+      showChordLabels: true,
+      perspectiveTilt: 0.6,
+      showHands: false,
+      bloomIntensity: 1.62,
+      bloomRadius: 1.45,
+      bloomThreshold: 0.22,
+      sharpness: 0.16,
+      chromaticAberration: 0.18,
+      keyLightBeams: true,
+      keyBeamIntensity: 0.58,
+      plasmaEdgeWave: true,
+      plasmaEdgeIntensity: 1.32,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
+      electricArcsEnabled: false,
+      cameraPunchIntensity: 0.16,
+      particleTheme: 'prism',
+      fluidSilkEnabled: true,
+      sparksEnabled: true,
+      stardustEnabled: true,
+      shockwavesEnabled: true,
+      particleDensity: 1.75,
+      particleTurbulence: 1.55,
+      backgroundPreset: 'void',
+      bgOpacity: 0.85,
+    },
+  },
+  {
+    id: 'concert-laser-arena',
+    name: 'Concert Laser Arena',
+    subtitle: 'Sân khấu hòa nhạc ánh đèn quét theo beat + sóng chạm lan rộng & vòng phổ âm thanh nổi',
+    subtitleEn: 'Sweeping volumetric concert spotlights, radial frequency halo & deep arena optics',
+    accentFrom: '#38bdf8',
+    accentTo: '#f59e0b',
+    patch: {
+      viewMode: '3d',
+      noteStyle: 'glass-bar',
+      colorMode: 'dual-hand',
+      leftHandColor: '#38bdf8',
+      rightHandColor: '#f59e0b',
+      rgbFlowEnabled: false,
+      strikeWaveEnabled: true,
+      strikeWaveIntensity: 1.35,
+      stageSpotlightsEnabled: true,
+      stageSpotlightsIntensity: 1.25,
+      beatHaloEnabled: true,
+      beatStageGlowEnabled: true,
+      dynamicCameraEnabled: true,
+      noteWidthScale: 0.78,
+      noteGlowIntensity: 1.05,
+      showNoteLabels: false,
+      showMeasureGrid: true,
+      showChordLabels: true,
+      perspectiveTilt: 0.62,
+      showHands: false,
+      bloomIntensity: 1.55,
+      bloomRadius: 1.38,
+      bloomThreshold: 0.24,
+      chromaticAberration: 0.14,
+      keyLightBeams: true,
+      keyBeamIntensity: 0.62,
+      plasmaEdgeWave: true,
+      plasmaEdgeIntensity: 1.18,
+      eqSpectrumEnabled: true,
+      mirrorReflectionEnabled: true,
+      electricArcsEnabled: false,
+      cameraPunchIntensity: 0.14,
+      particleTheme: 'cosmic',
+      fluidSilkEnabled: true,
+      sparksEnabled: true,
+      stardustEnabled: true,
+      shockwavesEnabled: true,
+      particleDensity: 1.6,
+      particleTurbulence: 1.35,
+      backgroundPreset: 'void',
+      bgOpacity: 0.9,
     },
   },
   {
@@ -378,7 +504,15 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.38,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.05,
-      eqSpectrumEnabled: true,
+      rgbFlowEnabled: true,
+  rgbFlowSpeed: 0.75,
+  strikeWaveEnabled: true,
+  strikeWaveIntensity: 1.05,
+  stageSpotlightsEnabled: true,
+  stageSpotlightsIntensity: 0.72,
+  beatHaloEnabled: false,
+  beatStageGlowEnabled: true,
+  eqSpectrumEnabled: true,
       mirrorReflectionEnabled: true,
       electricArcsEnabled: false,
       cameraPunchIntensity: 0.18,
@@ -419,7 +553,15 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.55,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.4,
-      eqSpectrumEnabled: true,
+      rgbFlowEnabled: true,
+  rgbFlowSpeed: 0.75,
+  strikeWaveEnabled: true,
+  strikeWaveIntensity: 1.05,
+  stageSpotlightsEnabled: true,
+  stageSpotlightsIntensity: 0.72,
+  beatHaloEnabled: false,
+  beatStageGlowEnabled: true,
+  eqSpectrumEnabled: true,
       mirrorReflectionEnabled: true,
       electricArcsEnabled: true,
       cameraPunchIntensity: 0.45,
@@ -460,7 +602,15 @@ export const VISUAL_PRESETS: VisualPreset[] = [
       keyBeamIntensity: 0.52,
       plasmaEdgeWave: true,
       plasmaEdgeIntensity: 1.05,
-      eqSpectrumEnabled: true,
+      rgbFlowEnabled: true,
+  rgbFlowSpeed: 0.75,
+  strikeWaveEnabled: true,
+  strikeWaveIntensity: 1.05,
+  stageSpotlightsEnabled: true,
+  stageSpotlightsIntensity: 0.72,
+  beatHaloEnabled: false,
+  beatStageGlowEnabled: true,
+  eqSpectrumEnabled: true,
       mirrorReflectionEnabled: true,
       electricArcsEnabled: true,
       cameraPunchIntensity: 0.2,

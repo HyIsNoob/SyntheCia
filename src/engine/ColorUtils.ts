@@ -89,9 +89,13 @@ export function lightenRgb(rgb: RGB, amount: number): RGB {
 }
 
 export function resolveNoteColor(
-  note: Pick<MidiNoteEvent, 'midi' | 'hand' | 'velocity' | 'trackIndex'>,
-  settings: Pick<VisualizerSettings, 'colorMode' | 'leftHandColor' | 'rightHandColor'>,
-  trackOverrides?: Readonly<Record<number, TrackOverride>>
+  note: Pick<MidiNoteEvent, 'midi' | 'hand' | 'velocity' | 'trackIndex'> & { start?: number },
+  settings: Pick<VisualizerSettings, 'colorMode' | 'leftHandColor' | 'rightHandColor'> & {
+    rgbFlowEnabled?: boolean;
+    rgbFlowSpeed?: number;
+  },
+  trackOverrides?: Readonly<Record<number, TrackOverride>>,
+  rgbHueShiftDeg = 0
 ): RGB {
   const override = trackOverrides?.[note.trackIndex];
   if (override?.color) {
@@ -102,11 +106,18 @@ export function resolveNoteColor(
   if (mode === 'dual-hand') {
     return hexToRgb(effectiveHand === 'left' ? settings.leftHandColor : settings.rightHandColor);
   }
-  if (mode === 'rainbow') {
-    // AAA Neon Rainbow Spectrum across the 88-key range:
-    // Electric Cyan -> Royal Blue -> Neon Violet -> Hot Magenta -> Coral Rose -> Solar Gold -> Emerald Mint
+  if (mode === 'rgb-wave') {
+    // Liquid traveling RGB Prism Aurora flowing smoothly across pitch AND time!
     const t = Math.max(0, Math.min(1, (note.midi - 21) / 87));
-    const hue = (195 + t * 285) % 360;
+    const timeWave = (note.start ?? 0) * 38;
+    const hue = (190 + t * 320 + rgbHueShiftDeg + timeWave) % 360;
+    return hslToRgb(hue, 0.98, 0.6);
+  }
+  if (mode === 'rainbow') {
+    // AAA Neon Rainbow Spectrum across the 88-key range (optionally flows softly when rgbFlowEnabled!)
+    const t = Math.max(0, Math.min(1, (note.midi - 21) / 87));
+    const shift = settings.rgbFlowEnabled ? rgbHueShiftDeg * 0.45 : 0;
+    const hue = (195 + t * 285 + shift) % 360;
     return hslToRgb(hue, 0.96, 0.6);
   }
   if (mode === 'velocity') {

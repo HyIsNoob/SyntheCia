@@ -373,6 +373,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               {(
                 [
                   { id: 'rainbow', label: isEn ? 'Neon Rainbow' : 'Cầu vồng Neon' },
+                  { id: 'rgb-wave', label: isEn ? 'RGB Flow Wave' : 'Dải màu RGB động' },
                   { id: 'dual-hand', label: isEn ? 'Left / Right' : '2 Tay (Custom)' },
                   { id: 'velocity', label: isEn ? 'Velocity Heat' : 'Theo lực đánh' },
                   { id: 'track', label: isEn ? 'Per MIDI Track' : 'Theo Track MIDI' },
@@ -578,6 +579,70 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               onChange={(v) => onUpdateSettings({ chromaticAberration: v })}
             />
 
+            <SectionTitle>{isEn ? 'Beat & RGB Concert Light Show' : 'Ánh sáng Trình diễn RGB & Theo Beat'}</SectionTitle>
+            <ToggleRow
+              label={isEn ? 'Strike Light Spread Wave' : 'Ánh sáng lan tỏa khi nốt chạm phím'}
+              hint={isEn ? 'Expanding light dome & cascading keybed wave' : 'Vòm sáng tỏa lên & sóng màu chạy lan sang phím kế bên'}
+              checked={settings.strikeWaveEnabled}
+              onChange={(v) => onUpdateSettings({ strikeWaveEnabled: v })}
+            />
+            {settings.strikeWaveEnabled && (
+              <SliderRow
+                label={isEn ? 'Strike Wave Strength' : 'Độ lan rộng sóng ánh sáng'}
+                valueText={`${Math.round(settings.strikeWaveIntensity * 100)}%`}
+                value={settings.strikeWaveIntensity}
+                min={0.25}
+                max={2.0}
+                step={0.05}
+                onChange={(v) => onUpdateSettings({ strikeWaveIntensity: v })}
+              />
+            )}
+            <ToggleRow
+              label={isEn ? 'Moving RGB Spectrum Flow' : 'Hiệu ứng màu RGB chuyển động'}
+              hint={isEn ? 'Continuously glides chromatic hues with music' : 'Dải màu RGB chảy mượt tăng tốc theo nhịp nhạc'}
+              checked={settings.rgbFlowEnabled}
+              onChange={(v) => onUpdateSettings({ rgbFlowEnabled: v })}
+            />
+            {(settings.rgbFlowEnabled || settings.colorMode === 'rgb-wave') && (
+              <SliderRow
+                label={isEn ? 'RGB Flow Speed' : 'Tốc độ chuyển màu RGB'}
+                valueText={`${settings.rgbFlowSpeed.toFixed(2)}x`}
+                value={settings.rgbFlowSpeed}
+                min={0.15}
+                max={3.0}
+                step={0.05}
+                onChange={(v) => onUpdateSettings({ rgbFlowSpeed: v })}
+              />
+            )}
+            <ToggleRow
+              label={isEn ? 'Beat-Reactive Concert Spotlights' : 'Đèn sân khấu quét theo Beat'}
+              hint={isEn ? 'Volumetric stage beams sweeping & pulsing to music' : 'Luồng đèn sân khấu quét & chớp mượt theo nhạc'}
+              checked={settings.stageSpotlightsEnabled}
+              onChange={(v) => onUpdateSettings({ stageSpotlightsEnabled: v })}
+            />
+            {settings.stageSpotlightsEnabled && (
+              <SliderRow
+                label={isEn ? 'Spotlight Intensity' : 'Độ sáng đèn sân khấu'}
+                valueText={`${Math.round(settings.stageSpotlightsIntensity * 100)}%`}
+                value={settings.stageSpotlightsIntensity}
+                min={0.2}
+                max={1.8}
+                step={0.05}
+                onChange={(v) => onUpdateSettings({ stageSpotlightsIntensity: v })}
+              />
+            )}
+            <ToggleRow
+              label={isEn ? 'Circular 3D Audio Beat Halo' : 'Vòng phổ âm thanh 3D theo Beat'}
+              hint={isEn ? 'Floating 80-bar radial frequency ring behind highway' : 'Vòng tròn phổ tần số 80 tia nhảy theo nhạc giữa sân khấu'}
+              checked={settings.beatHaloEnabled}
+              onChange={(v) => onUpdateSettings({ beatHaloEnabled: v })}
+            />
+            <ToggleRow
+              label={isEn ? 'Beat Stage Perimeter Glow' : 'Viền sân khấu thở theo Beat'}
+              checked={settings.beatStageGlowEnabled}
+              onChange={(v) => onUpdateSettings({ beatStageGlowEnabled: v })}
+            />
+
             <SectionTitle>{isEn ? 'Concert Stage FX' : 'Hiệu ứng Sân khấu Concert'}</SectionTitle>
             <ToggleRow
               label={isEn ? 'Live Audio EQ Spectrum' : 'Sóng quang phổ Audio EQ'}
@@ -678,10 +743,11 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             />
             {settings.particlesEnabled && (
               <div className="space-y-2.5 pl-1 border-l-2 border-violet-500/30">
-                <div className="grid grid-cols-4 gap-1">
+                <div className="grid grid-cols-5 gap-1">
                   {(
                     [
                       { id: 'cosmic', label: 'Cosmic' },
+                      { id: 'prism', label: 'RGB' },
                       { id: 'fire', label: 'Fire' },
                       { id: 'sakura', label: 'Sakura' },
                       { id: 'frost', label: 'Frost' },
